@@ -30,3 +30,12 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Local wacli state (if you point --store into the repo)
+*.db
+*.db-*
+media/
+store/
+
+# Built CLI binary
+wacli
