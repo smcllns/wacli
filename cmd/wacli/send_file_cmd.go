@@ -13,6 +13,7 @@ import (
 func newSendFileCmd(flags *rootFlags) *cobra.Command {
 	var to string
 	var filePath string
+	var filename string
 	var caption string
 	var mimeOverride string
 
@@ -45,7 +46,7 @@ func newSendFileCmd(flags *rootFlags) *cobra.Command {
 				return err
 			}
 
-			msgID, meta, err := sendFile(ctx, a, toJID, filePath, caption, mimeOverride)
+			msgID, meta, err := sendFile(ctx, a, toJID, filePath, filename, caption, mimeOverride)
 			if err != nil {
 				return err
 			}
@@ -65,6 +66,7 @@ func newSendFileCmd(flags *rootFlags) *cobra.Command {
 
 	cmd.Flags().StringVar(&to, "to", "", "recipient phone number or JID")
 	cmd.Flags().StringVar(&filePath, "file", "", "path to file")
+	cmd.Flags().StringVar(&filename, "filename", "", "display name for the file (defaults to basename of --file)")
 	cmd.Flags().StringVar(&caption, "caption", "", "caption (images/videos/documents)")
 	cmd.Flags().StringVar(&mimeOverride, "mime", "", "override detected mime type")
 	return cmd

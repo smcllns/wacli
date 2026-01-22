@@ -20,13 +20,16 @@ import (
 func sendFile(ctx context.Context, a interface {
 	WA() app.WAClient
 	DB() *store.DB
-}, to types.JID, filePath, caption, mimeOverride string) (string, map[string]string, error) {
+}, to types.JID, filePath, filename, caption, mimeOverride string) (string, map[string]string, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return "", nil, err
 	}
 
-	name := filepath.Base(filePath)
+	name := strings.TrimSpace(filename)
+	if name == "" {
+		name = filepath.Base(filePath)
+	}
 	mimeType := strings.TrimSpace(mimeOverride)
 	if mimeType == "" {
 		mimeType = mime.TypeByExtension(strings.ToLower(filepath.Ext(name)))
