@@ -6,6 +6,10 @@
 
 - Start tracking changes for the next release (from 2026-01-23).
 
+### Fixed
+
+- Build: preserve existing `CGO_CFLAGS` when adding GCC 15+ workaround. (#8 — thanks @ramarivera)
+
 ## 0.1.0 - 2026-01-01
 
 ### Added
