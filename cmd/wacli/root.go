@@ -15,7 +15,7 @@ import (
 	"github.com/steipete/wacli/internal/out"
 )
 
-var version = "dev"
+var version = "0.3.0-dev"
 
 type rootFlags struct {
 	storeDir string
