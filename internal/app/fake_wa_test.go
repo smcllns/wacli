@@ -216,7 +216,7 @@ func (f *fakeWA) Upload(ctx context.Context, data []byte, mediaType whatsmeow.Me
 	return whatsmeow.UploadResponse{}, nil
 }
 
-func (f *fakeWA) SendReaction(ctx context.Context, chat types.JID, targetID types.MessageID, reaction string) (types.MessageID, error) {
+func (f *fakeWA) SendReaction(ctx context.Context, chat, sender types.JID, targetID types.MessageID, reaction string) (types.MessageID, error) {
 	return "react-id", nil
 }
 

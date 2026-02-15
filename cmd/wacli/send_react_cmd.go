@@ -46,9 +46,15 @@ func newSendReactCmd(flags *rootFlags) *cobra.Command {
 				return err
 			}
 
-			_ = sender // reserved for group sender attribution
+			var senderJID types.JID
+			if sender != "" {
+				senderJID, err = wa.ParseUserOrJID(sender)
+				if err != nil {
+					return fmt.Errorf("invalid --sender: %w", err)
+				}
+			}
 
-			msgID, err := a.WA().SendReaction(ctx, toJID, types.MessageID(id), reaction)
+			msgID, err := a.WA().SendReaction(ctx, toJID, senderJID, types.MessageID(id), reaction)
 			if err != nil {
 				return err
 			}
