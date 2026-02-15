@@ -7,7 +7,7 @@ Fork → add `send react` → build from source → use in whatsapp-poll.sh to a
 ## Tasks
 
 - [x] Fork steipete/wacli → smcllns/wacli, clone, create feat/wacli-reactions branch
-- [x] Add `SendReaction()` to `internal/wa/client.go`
+- [x] Add `SendReaction()` to `internal/wa/client.go` (delegates to `cli.BuildReaction()`)
 - [x] Add to `WAClient` interface in `internal/app/app.go`
 - [x] Add fake impl in `internal/app/fake_wa_test.go`
 - [x] Create `cmd/wacli/send_react_cmd.go` (cobra command)
@@ -17,5 +17,8 @@ Fork → add `send react` → build from source → use in whatsapp-poll.sh to a
 - [x] Add `react` command to whatsapp.sh skill (agent-murphy)
 - [x] Include [MSGID:] tags in cmd_check output
 - [x] Update whatsapp-poll.sh to react instead of text ack
-- [ ] E2E test: send a reaction to a real message
-- [ ] Upstream: evaluate PR to steipete/wacli (deferred)
+- [x] E2E test: react ✓, change reaction ✓, remove reaction ✓
+- [ ] Upstream: evaluate PR to steipete/wacli (pending code review)
+
+## Key Decision
+Initially manually constructed `ReactionMessage` protobuf — message sent without error but was silently ignored by recipient. Fixed by using whatsmeow's `BuildReaction()` which correctly sets `SenderTimestampMS` and builds the `MessageKey` via `BuildMessageKey`.
