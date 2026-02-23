@@ -207,6 +207,21 @@ func (c *Client) Upload(ctx context.Context, data []byte, mediaType whatsmeow.Me
 	return cli.Upload(ctx, data, mediaType)
 }
 
+func (c *Client) SendReaction(ctx context.Context, chat, sender types.JID, targetID types.MessageID, reaction string) (types.MessageID, error) {
+	c.mu.Lock()
+	cli := c.client
+	c.mu.Unlock()
+	if cli == nil || !cli.IsConnected() {
+		return "", fmt.Errorf("not connected")
+	}
+	msg := cli.BuildReaction(chat, sender, targetID, reaction)
+	resp, err := cli.SendMessage(ctx, chat, msg)
+	if err != nil {
+		return "", err
+	}
+	return resp.ID, nil
+}
+
 func (c *Client) DecryptReaction(ctx context.Context, reaction *events.Message) (*waProto.ReactionMessage, error) {
 	c.mu.Lock()
 	cli := c.client
