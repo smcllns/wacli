@@ -1,6 +1,6 @@
 # 🗃️ wacli — WhatsApp CLI: sync, search, send.
 
-Fork of [steipete/wacli](https://github.com/steipete/wacli). WhatsApp CLI built on top of `whatsmeow`, focused on:
+WhatsApp CLI built on top of `whatsmeow`, focused on:
 
 - Best-effort local sync of message history + continuous capture
 - Fast offline search
@@ -9,19 +9,14 @@ Fork of [steipete/wacli](https://github.com/steipete/wacli). WhatsApp CLI built 
 
 This is a third-party tool that uses the WhatsApp Web protocol via `whatsmeow` and is not affiliated with WhatsApp.
 
-## Status
+This project is a fork of [steipete/wacli](https://github.com/steipete/wacli).
 
-Core implementation is in place. See `docs/spec.md` for the full design notes.
+## Updates (smcllns/wacli fork)
 
-## Recent updates (0.3.0)
+### 0.3.0
 
 - Send: `wacli send react` to send emoji reactions to messages.
-
-## Recent updates (0.2.0)
-
-- Messages: search/list includes display text for reactions, replies, and media types.
-- Send: `wacli send file --filename` to override the display name.
-- Auth: optional `WACLI_DEVICE_LABEL` / `WACLI_DEVICE_PLATFORM` env overrides.
+- Updated docs to clarify how to set linked device name
 
 ## Install / Build
 
@@ -34,6 +29,8 @@ Default store directory is `~/.wacli` (override with `--store DIR`).
 ```bash
 # 1) Authenticate (shows QR), then bootstrap sync
 wacli auth
+# Note: optionally set the linked device name during auth:
+# WACLI_DEVICE_LABEL="wacli(mac mini)" WACLI_DEVICE_PLATFORM=DESKTOP wacli auth
 
 # 2) Keep syncing (never shows QR; requires prior auth)
 wacli sync --follow
@@ -84,8 +81,16 @@ Defaults to `~/.wacli` (override with `--store DIR`).
 
 ## Environment overrides
 
-- `WACLI_DEVICE_LABEL`: set the linked device label (shown in WhatsApp).
-- `WACLI_DEVICE_PLATFORM`: override the linked device platform (defaults to `CHROME` if unset or invalid).
+Set these when running `wacli auth` to control how the device appears in WhatsApp → Settings → Linked Devices:
+
+```bash
+WACLI_DEVICE_LABEL="wacli(air)" WACLI_DEVICE_PLATFORM=DESKTOP wacli auth
+```
+
+- `WACLI_DEVICE_LABEL`: label shown for the linked device (e.g. `wacli(air)`). Defaults to empty ("Other device").
+- `WACLI_DEVICE_PLATFORM`: icon for the linked device. Valid values from the [`DeviceProps_PlatformType`](https://github.com/go-whatsapp/whatsmeow/blob/main/proto/waCompanionReg/WAWebProtobufsCompanionReg.pb.go) enum, e.g. `DESKTOP` (computer icon), `CATALINA` (Apple icon). Defaults to `CHROME` ("Other device") if unset.
+
+> These are registered at pair time — to change them, delete `~/.wacli/session.db` and re-run `wacli auth`.
 
 ## Backfilling older history
 

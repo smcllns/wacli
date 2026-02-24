@@ -1,10 +1,14 @@
 # Changelog
 
-## 0.3.0 - Unreleased
+## 0.3.0 - 2026-02-22
 
 ### Added
 
-- TBD.
+- Send: `wacli send react` to send emoji reactions to messages.
+
+### Docs
+
+- Auth: document `WACLI_DEVICE_LABEL` and `WACLI_DEVICE_PLATFORM` with example command and re-pair instructions.
 
 ## 0.2.0 - 2026-01-23
 
