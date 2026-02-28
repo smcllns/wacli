@@ -22,6 +22,7 @@ func newMessagesCmd(flags *rootFlags) *cobra.Command {
 	cmd.AddCommand(newMessagesSearchCmd(flags))
 	cmd.AddCommand(newMessagesShowCmd(flags))
 	cmd.AddCommand(newMessagesContextCmd(flags))
+	cmd.AddCommand(newMessagesReadCmd(flags))
 	return cmd
 }
 

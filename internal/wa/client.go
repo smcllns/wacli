@@ -207,6 +207,22 @@ func (c *Client) Upload(ctx context.Context, data []byte, mediaType whatsmeow.Me
 	return cli.Upload(ctx, data, mediaType)
 }
 
+func (c *Client) MarkRead(ctx context.Context, ids []types.MessageID, timestamp time.Time, chat, sender types.JID) error {
+	c.mu.Lock()
+	cli := c.client
+	c.mu.Unlock()
+	if cli == nil || !cli.IsConnected() {
+		return fmt.Errorf("not connected")
+	}
+	// Send presence available so read receipts are visible to the sender
+	_ = cli.SendPresence(ctx, types.PresenceAvailable)
+	// Force ReceiptTypeRead to send visible read receipts regardless of privacy settings
+	err := cli.MarkRead(ctx, ids, timestamp, chat, sender, types.ReceiptTypeRead)
+	// Go back to unavailable
+	_ = cli.SendPresence(ctx, types.PresenceUnavailable)
+	return err
+}
+
 func (c *Client) SendReaction(ctx context.Context, chat, sender types.JID, targetID types.MessageID, reaction string) (types.MessageID, error) {
 	c.mu.Lock()
 	cli := c.client
