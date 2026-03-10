@@ -1,4 +1,4 @@
-# @smcllns/wacli — WhatsApp CLI for Agent<>Sam comms
+# @smcllns/wacli — WhatsApp CLI for programmatic messaging
 
 WhatsApp CLI built on top of `whatsmeow`.
 
