@@ -1,13 +1,11 @@
-# 🗃️ wacli — WhatsApp CLI: sync, search, send.
+# @smcllns/wacli — WhatsApp CLI for Agent<>Sam comms
 
-WhatsApp CLI built on top of `whatsmeow`, focused on:
+WhatsApp CLI built on top of `whatsmeow`.
 
 - Best-effort local sync of message history + continuous capture
 - Fast offline search
 - Sending messages
-- Contact + group management
-
-This is a third-party tool that uses the WhatsApp Web protocol via `whatsmeow` and is not affiliated with WhatsApp.
+- Reacting to messages to provide status updates
 
 This project is a fork of [steipete/wacli](https://github.com/steipete/wacli).
 
