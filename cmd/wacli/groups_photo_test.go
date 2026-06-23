@@ -59,3 +59,11 @@ func TestSetGroupPhotoFromFileRequiresGroupJID(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestSetGroupPhotoFromFileReturnsReadFileError(t *testing.T) {
+	_, _, err := setGroupPhotoFromFile(context.Background(), &recordingGroupPhotoSetter{}, "12345@g.us", filepath.Join(t.TempDir(), "missing.jpg"))
+
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
