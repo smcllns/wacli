@@ -24,6 +24,7 @@ func newGroupsCmd(flags *rootFlags) *cobra.Command {
 	cmd.AddCommand(newGroupsRefreshCmd(flags))
 	cmd.AddCommand(newGroupsInfoCmd(flags))
 	cmd.AddCommand(newGroupsRenameCmd(flags))
+	cmd.AddCommand(newGroupsPhotoCmd(flags))
 	cmd.AddCommand(newGroupsParticipantsCmd(flags))
 	cmd.AddCommand(newGroupsInviteCmd(flags))
 	cmd.AddCommand(newGroupsJoinCmd(flags))
@@ -217,6 +218,71 @@ func newGroupsRenameCmd(flags *rootFlags) *cobra.Command {
 	cmd.Flags().StringVar(&jidStr, "jid", "", "group JID (…@g.us)")
 	cmd.Flags().StringVar(&name, "name", "", "new name")
 	return cmd
+}
+
+func newGroupsPhotoCmd(flags *rootFlags) *cobra.Command {
+	var jidStr string
+	var filePath string
+	cmd := &cobra.Command{
+		Use:   "photo",
+		Short: "Set group photo",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if strings.TrimSpace(jidStr) == "" || strings.TrimSpace(filePath) == "" {
+				return fmt.Errorf("--jid and --file are required")
+			}
+			ctx, cancel := withTimeout(context.Background(), flags)
+			defer cancel()
+
+			a, lk, err := newApp(ctx, flags, true, false)
+			if err != nil {
+				return err
+			}
+			defer closeApp(a, lk)
+
+			if err := a.EnsureAuthed(); err != nil {
+				return err
+			}
+			if err := a.Connect(ctx, false, nil); err != nil {
+				return err
+			}
+
+			gjid, pictureID, err := setGroupPhotoFromFile(ctx, a.WA(), jidStr, filePath)
+			if err != nil {
+				return err
+			}
+			if flags.asJSON {
+				return out.WriteJSON(os.Stdout, map[string]any{"jid": gjid.String(), "picture_id": pictureID})
+			}
+			fmt.Fprintln(os.Stdout, "OK")
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&jidStr, "jid", "", "group JID (…@g.us)")
+	cmd.Flags().StringVar(&filePath, "file", "", "JPEG image file")
+	return cmd
+}
+
+type groupPhotoSetter interface {
+	SetGroupPhoto(ctx context.Context, jid types.JID, avatar []byte) (string, error)
+}
+
+func setGroupPhotoFromFile(ctx context.Context, setter groupPhotoSetter, jidStr, filePath string) (types.JID, string, error) {
+	gjid, err := types.ParseJID(jidStr)
+	if err != nil {
+		return types.JID{}, "", err
+	}
+	if gjid.Server != types.GroupServer {
+		return types.JID{}, "", fmt.Errorf("--jid must be a group JID (…@g.us)")
+	}
+	avatar, err := os.ReadFile(filePath)
+	if err != nil {
+		return types.JID{}, "", err
+	}
+	pictureID, err := setter.SetGroupPhoto(ctx, gjid, avatar)
+	if err != nil {
+		return types.JID{}, "", err
+	}
+	return gjid, pictureID, nil
 }
 
 func newGroupsParticipantsCmd(flags *rootFlags) *cobra.Command {
