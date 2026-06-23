@@ -32,6 +32,7 @@ type WAClient interface {
 	GetJoinedGroups(ctx context.Context) ([]*types.GroupInfo, error)
 	GetGroupInfo(ctx context.Context, jid types.JID) (*types.GroupInfo, error)
 	SetGroupName(ctx context.Context, jid types.JID, name string) error
+	SetGroupPhoto(ctx context.Context, jid types.JID, avatar []byte) (string, error)
 	UpdateGroupParticipants(ctx context.Context, group types.JID, users []types.JID, action wa.GroupParticipantAction) ([]types.GroupParticipant, error)
 	GetGroupInviteLink(ctx context.Context, group types.JID, reset bool) (string, error)
 	JoinGroupWithLink(ctx context.Context, code string) (types.JID, error)
