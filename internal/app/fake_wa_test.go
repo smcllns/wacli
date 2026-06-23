@@ -163,6 +163,10 @@ func (f *fakeWA) SetGroupName(ctx context.Context, jid types.JID, name string) e
 	return nil
 }
 
+func (f *fakeWA) SetGroupPhoto(ctx context.Context, jid types.JID, avatar []byte) (string, error) {
+	return "picture-id", nil
+}
+
 func (f *fakeWA) UpdateGroupParticipants(ctx context.Context, group types.JID, users []types.JID, action wa.GroupParticipantAction) ([]types.GroupParticipant, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
