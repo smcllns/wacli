@@ -13,6 +13,7 @@ This project is a fork of [steipete/wacli](https://github.com/steipete/wacli).
 
 ### 0.3.0
 
+- Groups: `wacli groups photo` to set a group photo from a JPEG file.
 - Send: `wacli send react` to send emoji reactions to messages.
 - Updated docs to clarify how to set linked device name
 
@@ -59,6 +60,7 @@ wacli send react --to 1234567890 --id <message-id> --emoji 👍
 # List groups and manage participants
 wacli groups list
 wacli groups rename --jid 123456789@g.us --name "New name"
+wacli groups photo --jid 123456789@g.us --file ./group-photo.jpg
 ```
 
 ## Prior Art / Credit

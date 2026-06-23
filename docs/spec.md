@@ -194,6 +194,7 @@ WhatsApp Web history is best-effort. If you want to try fetching *older* message
 - `wacli groups refresh`
 - `wacli groups info --jid GROUP_JID`
 - `wacli groups rename --jid GROUP_JID --name "New Name"`
+- `wacli groups photo --jid GROUP_JID --file PHOTO.jpg`
 - `wacli groups participants add|remove --jid GROUP_JID --user PHONE_OR_JID [--user ...]`
 - `wacli groups participants promote|demote --jid GROUP_JID --user PHONE_OR_JID [--user ...]`
 - `wacli groups invite link get|revoke --jid GROUP_JID`

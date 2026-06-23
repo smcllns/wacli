@@ -4,6 +4,7 @@
 
 ### Added
 
+- Groups: `wacli groups photo` to set a group photo from a JPEG file.
 - Send: `wacli send react` to send emoji reactions to messages.
 
 ### Docs

@@ -28,6 +28,16 @@ func (c *Client) SetGroupName(ctx context.Context, jid types.JID, name string) e
 	return cli.SetGroupName(ctx, jid, name)
 }
 
+func (c *Client) SetGroupPhoto(ctx context.Context, jid types.JID, avatar []byte) (string, error) {
+	c.mu.Lock()
+	cli := c.client
+	c.mu.Unlock()
+	if cli == nil || !cli.IsConnected() {
+		return "", fmt.Errorf("not connected")
+	}
+	return cli.SetGroupPhoto(ctx, jid, avatar)
+}
+
 type GroupParticipantAction string
 
 const (
