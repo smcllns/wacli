@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -288,4 +289,56 @@ func TestRunDaemonRemovesSubscriberAfterDisconnect(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("subscriber was not removed after disconnect")
+}
+
+func TestRunDaemonSecuresSocketPermissions(t *testing.T) {
+	a := newTestAppWithFakeWA(t)
+	socketPath := shortSocketPath(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	errCh := make(chan error, 1)
+	go func() { errCh <- a.RunDaemon(ctx, DaemonOptions{SocketPath: socketPath, QueueSize: 4}) }()
+	waitForUnixSocketOrError(t, socketPath, errCh)
+
+	st, err := os.Stat(socketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := st.Mode().Perm(); got != 0o600 {
+		t.Fatalf("socket permissions = %o, want 600", got)
+	}
+}
+
+func TestRunDaemonStopsOnLiveMessageStoreError(t *testing.T) {
+	a := newTestAppWithFakeWA(t)
+	fake := a.wa.(*fakeWA)
+	socketPath := shortSocketPath(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	errCh := make(chan error, 1)
+	go func() { errCh <- a.RunDaemon(ctx, DaemonOptions{SocketPath: socketPath, QueueSize: 4}) }()
+	waitForUnixSocketOrError(t, socketPath, errCh)
+
+	if err := a.db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	chat := types.JID{User: "123", Server: types.DefaultUserServer}
+	fake.emit(&events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{Chat: chat, Sender: chat},
+			ID:            "m-store-error",
+			Timestamp:     time.Now().UTC(),
+			PushName:      "Alice",
+		},
+		Message: &waProto.Message{Conversation: proto.String("boom")},
+	})
+
+	select {
+	case err := <-errCh:
+		if err == nil || !strings.Contains(err.Error(), "store daemon live message") {
+			t.Fatalf("RunDaemon err = %v, want store daemon live message error", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("RunDaemon did not stop after live message store error")
+	}
 }

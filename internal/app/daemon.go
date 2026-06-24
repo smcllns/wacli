@@ -96,9 +96,14 @@ func (a *App) RunDaemon(ctx context.Context, opts DaemonOptions) error {
 		return err
 	}
 
+	errCh := make(chan error, 1)
 	listener, err := net.Listen("unix", opts.SocketPath)
 	if err != nil {
 		return fmt.Errorf("listen daemon socket: %w", err)
+	}
+	if err := os.Chmod(opts.SocketPath, 0o600); err != nil {
+		_ = listener.Close()
+		return fmt.Errorf("secure daemon socket: %w", err)
 	}
 	defer listener.Close()
 	defer os.Remove(opts.SocketPath)
@@ -117,10 +122,12 @@ func (a *App) RunDaemon(ctx context.Context, opts DaemonOptions) error {
 			return
 		}
 		if err := a.storeParsedMessage(ctx, pm); err != nil {
+			sendDaemonError(errCh, fmt.Errorf("store daemon live message: %w", err))
 			return
 		}
 		rowid, err := a.db.MessageRowID(pm.Chat.String(), pm.ID)
 		if err != nil {
+			sendDaemonError(errCh, fmt.Errorf("lookup daemon live message rowid: %w", err))
 			return
 		}
 		subscribers.broadcast(DaemonEvent{
@@ -138,16 +145,15 @@ func (a *App) RunDaemon(ctx context.Context, opts DaemonOptions) error {
 	})
 	defer a.wa.RemoveEventHandler(handlerID)
 
-	errCh := make(chan error, 1)
 	go func() {
 		for {
 			conn, err := listener.Accept()
 			if err != nil {
 				select {
 				case <-ctx.Done():
-					errCh <- nil
+					sendDaemonError(errCh, nil)
 				default:
-					errCh <- err
+					sendDaemonError(errCh, err)
 				}
 				return
 			}
@@ -200,6 +206,13 @@ func (s *daemonSubscribers) broadcast(event DaemonEvent) {
 			delete(s.subscribers, ch)
 			close(ch)
 		}
+	}
+}
+
+func sendDaemonError(errCh chan<- error, err error) {
+	select {
+	case errCh <- err:
+	default:
 	}
 }
 
