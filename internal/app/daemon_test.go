@@ -92,3 +92,15 @@ func TestDaemonWriteQueueSerializesCommands(t *testing.T) {
 		t.Fatalf("second = (%v, %v)", second.Data, second.Err)
 	}
 }
+
+func TestDaemonWriteQueueReturnsErrorAfterClose(t *testing.T) {
+	q := newDaemonWriteQueue(1, func(ctx context.Context, cmd DaemonCommand) (any, error) {
+		return nil, nil
+	})
+	q.Close()
+	res := q.Enqueue(context.Background(), DaemonCommand{Type: "send_text", ChatJID: "120@g.us", Message: "hi"})
+	<-res.Done
+	if !errors.Is(res.Err, ErrDaemonQueueClosed) {
+		t.Fatalf("err = %v, want ErrDaemonQueueClosed", res.Err)
+	}
+}

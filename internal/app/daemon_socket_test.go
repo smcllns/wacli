@@ -237,3 +237,55 @@ func TestRunDaemonDoesNotUnlinkLiveSocket(t *testing.T) {
 	}
 	_ = conn.Close()
 }
+
+func TestRunDaemonRefusesNonSocketPath(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "not-a-socket")
+	if err := os.WriteFile(path, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a := newTestAppWithFakeWA(t)
+	err := a.RunDaemon(context.Background(), DaemonOptions{SocketPath: path, QueueSize: 4})
+	if err == nil || err.Error() != "daemon socket path exists and is not a socket" {
+		t.Fatalf("err = %v, want non-socket error", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != "keep" {
+		t.Fatalf("non-socket path was modified: data=%q err=%v", data, err)
+	}
+}
+
+func TestRunDaemonRemovesSubscriberAfterDisconnect(t *testing.T) {
+	a := newTestAppWithFakeWA(t)
+	socketPath := shortSocketPath(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = a.RunDaemon(ctx, DaemonOptions{SocketPath: socketPath, QueueSize: 4}) }()
+	waitForUnixSocket(t, socketPath)
+
+	conn, err := net.Dial("unix", socketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.Write([]byte(`{"type":"subscribe"}` + "\n")); err != nil {
+		t.Fatal(err)
+	}
+	var ack DaemonResponse
+	if err := json.NewDecoder(conn).Decode(&ack); err != nil {
+		t.Fatal(err)
+	}
+	if !ack.Success {
+		t.Fatalf("ack = %+v", ack)
+	}
+	_ = conn.Close()
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		resp := sendDaemonTestCommand(t, socketPath, `{"type":"health"}`)
+		data := resp.Data.(map[string]any)
+		if data["subscriberCount"].(float64) == 0 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("subscriber was not removed after disconnect")
+}

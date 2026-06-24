@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -19,6 +20,7 @@ import (
 )
 
 var ErrDaemonQueueFull = errors.New("daemon write queue full")
+var ErrDaemonQueueClosed = errors.New("daemon write queue closed")
 
 type DaemonOptions struct {
 	SocketPath string
@@ -63,9 +65,11 @@ type DaemonResult struct {
 }
 
 type daemonWriteQueue struct {
-	jobs  chan daemonWriteJob
-	slots chan struct{}
-	done  chan struct{}
+	mu     sync.Mutex
+	closed bool
+	jobs   chan daemonWriteJob
+	slots  chan struct{}
+	done   chan struct{}
 }
 
 type daemonWriteJob struct {
@@ -177,6 +181,12 @@ func (s *daemonSubscribers) remove(ch chan DaemonEvent) {
 	close(ch)
 }
 
+func (s *daemonSubscribers) count() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.subscribers)
+}
+
 func (s *daemonSubscribers) broadcast(event DaemonEvent) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -189,6 +199,17 @@ func (s *daemonSubscribers) broadcast(event DaemonEvent) {
 }
 
 func removeStaleDaemonSocket(socketPath string) error {
+	st, err := os.Lstat(socketPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("stat daemon socket path: %w", err)
+	}
+	if st.Mode()&os.ModeSocket == 0 {
+		return errors.New("daemon socket path exists and is not a socket")
+	}
+
 	conn, err := net.Dial("unix", socketPath)
 	if err == nil {
 		_ = conn.Close()
@@ -215,23 +236,31 @@ func (a *App) handleDaemonConn(ctx context.Context, conn net.Conn, queue *daemon
 		}
 		if cmd.Type == "health" {
 			_ = encoder.Encode(DaemonResponse{Type: "response", Success: true, Data: map[string]any{
-				"socketPath":    socketPath,
-				"storeDir":      a.StoreDir(),
-				"connected":     a.wa != nil && a.wa.IsConnected(),
-				"queueDepth":    len(queue.slots),
-				"queueMaxDepth": cap(queue.slots),
-				"ts":            time.Now().UTC().Format(time.RFC3339Nano),
+				"socketPath":      socketPath,
+				"storeDir":        a.StoreDir(),
+				"connected":       a.wa != nil && a.wa.IsConnected(),
+				"queueDepth":      len(queue.slots),
+				"queueMaxDepth":   cap(queue.slots),
+				"subscriberCount": subscribers.count(),
+				"ts":              time.Now().UTC().Format(time.RFC3339Nano),
 			}})
 			continue
 		}
 		if cmd.Type == "subscribe" {
 			events := make(chan DaemonEvent, 64)
+			disconnected := make(chan struct{})
 			subscribers.add(events)
 			defer subscribers.remove(events)
+			go func() {
+				_, _ = io.Copy(io.Discard, conn)
+				close(disconnected)
+			}()
 			_ = encoder.Encode(DaemonResponse{Type: "response", Success: true, Data: map[string]any{"subscribed": true}})
 			for {
 				select {
 				case <-ctx.Done():
+					return
+				case <-disconnected:
 					return
 				case event := <-events:
 					if err := encoder.Encode(event); err != nil {
@@ -391,6 +420,13 @@ func newDaemonWriteQueue(limit int, handler func(context.Context, DaemonCommand)
 
 func (q *daemonWriteQueue) Enqueue(ctx context.Context, cmd DaemonCommand) *DaemonResult {
 	res := &DaemonResult{Done: make(chan struct{})}
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.closed {
+		res.Err = ErrDaemonQueueClosed
+		close(res.Done)
+		return res
+	}
 	select {
 	case q.slots <- struct{}{}:
 	default:
@@ -404,6 +440,13 @@ func (q *daemonWriteQueue) Enqueue(ctx context.Context, cmd DaemonCommand) *Daem
 }
 
 func (q *daemonWriteQueue) Close() {
+	q.mu.Lock()
+	if q.closed {
+		q.mu.Unlock()
+		return
+	}
+	q.closed = true
 	close(q.jobs)
+	q.mu.Unlock()
 	<-q.done
 }
