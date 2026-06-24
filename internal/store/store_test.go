@@ -319,3 +319,21 @@ func TestGroupsUpsertListAndParticipantsReplace(t *testing.T) {
 		t.Fatalf("expected roles admin=1 member=1, got admin=%d member=%d", admins, members)
 	}
 }
+
+func TestMessageRowIDReturnsDurableRowID(t *testing.T) {
+	db := openTestDB(t)
+	chat := "123@s.whatsapp.net"
+	if err := db.UpsertChat(chat, "dm", "Alice", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.UpsertMessage(UpsertMessageParams{ChatJID: chat, MsgID: "m1", Timestamp: time.Now(), Text: "hi"}); err != nil {
+		t.Fatal(err)
+	}
+	rowid, err := db.MessageRowID(chat, "m1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rowid <= 0 {
+		t.Fatalf("rowid = %d, want positive", rowid)
+	}
+}

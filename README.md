@@ -3,6 +3,7 @@
 WhatsApp CLI built on top of `whatsmeow`.
 
 - Best-effort local sync of message history + continuous capture
+- Experimental realtime daemon over a Unix socket for long-running agents
 - Fast offline search
 - Sending messages
 - Reacting to messages to provide status updates
@@ -33,6 +34,9 @@ wacli auth
 
 # 2) Keep syncing (never shows QR; requires prior auth)
 wacli sync --follow
+
+# Experimental: run one long-lived daemon for realtime agent integrations
+wacli daemon --socket ~/.wacli/waldo.sock
 
 # Diagnostics
 wacli doctor
