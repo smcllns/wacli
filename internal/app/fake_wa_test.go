@@ -30,6 +30,9 @@ type fakeWA struct {
 	groups   map[types.JID]*types.GroupInfo
 
 	onDemandHistory func(lastKnown types.MessageInfo, count int) *events.HistorySync
+
+	lastTextTo      types.JID
+	lastTextMessage string
 }
 
 func newFakeWA() *fakeWA {
@@ -209,6 +212,10 @@ func (f *fakeWA) JoinGroupWithLink(ctx context.Context, code string) (types.JID,
 func (f *fakeWA) LeaveGroup(ctx context.Context, group types.JID) error { return nil }
 
 func (f *fakeWA) SendText(ctx context.Context, to types.JID, text string) (types.MessageID, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.lastTextTo = to
+	f.lastTextMessage = text
 	return types.MessageID("msgid"), nil
 }
 

@@ -603,6 +603,15 @@ func (d *DB) scanMessages(query string, args ...interface{}) ([]Message, error) 
 	return out, rows.Err()
 }
 
+func (d *DB) MessageRowID(chatJID, msgID string) (int64, error) {
+	row := d.sql.QueryRow(`SELECT rowid FROM messages WHERE chat_jid = ? AND msg_id = ?`, chatJID, msgID)
+	var rowid int64
+	if err := row.Scan(&rowid); err != nil {
+		return 0, err
+	}
+	return rowid, nil
+}
+
 func (d *DB) GetMessage(chatJID, msgID string) (Message, error) {
 	row := d.sql.QueryRow(`
 		SELECT m.chat_jid, COALESCE(c.name,''), m.msg_id, COALESCE(m.sender_jid,''), m.ts, m.from_me, COALESCE(m.text,''), COALESCE(m.display_text,''), COALESCE(m.media_type,'')
