@@ -104,3 +104,20 @@ func TestDaemonWriteQueueReturnsErrorAfterClose(t *testing.T) {
 		t.Fatalf("err = %v, want ErrDaemonQueueClosed", res.Err)
 	}
 }
+
+func TestDaemonSubscribersRemoveLaggingSubscriberOnOverflow(t *testing.T) {
+	s := daemonSubscribers{subscribers: map[chan DaemonEvent]struct{}{}}
+	ch := make(chan DaemonEvent, 1)
+	s.add(ch)
+	s.broadcast(DaemonEvent{Type: "message", MsgID: "one"})
+	s.broadcast(DaemonEvent{Type: "message", MsgID: "two"})
+	if got := s.count(); got != 0 {
+		t.Fatalf("subscriber count = %d, want 0 after overflow", got)
+	}
+	if _, ok := <-ch; !ok {
+		t.Fatalf("first buffered event missing before close")
+	}
+	if _, ok := <-ch; ok {
+		t.Fatalf("subscriber channel still open after overflow")
+	}
+}

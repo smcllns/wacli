@@ -177,6 +177,9 @@ func (s *daemonSubscribers) add(ch chan DaemonEvent) {
 func (s *daemonSubscribers) remove(ch chan DaemonEvent) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if _, ok := s.subscribers[ch]; !ok {
+		return
+	}
 	delete(s.subscribers, ch)
 	close(ch)
 }
@@ -194,6 +197,8 @@ func (s *daemonSubscribers) broadcast(event DaemonEvent) {
 		select {
 		case ch <- event:
 		default:
+			delete(s.subscribers, ch)
+			close(ch)
 		}
 	}
 }
@@ -262,7 +267,10 @@ func (a *App) handleDaemonConn(ctx context.Context, conn net.Conn, queue *daemon
 					return
 				case <-disconnected:
 					return
-				case event := <-events:
+				case event, ok := <-events:
+					if !ok {
+						return
+					}
 					if err := encoder.Encode(event); err != nil {
 						return
 					}
