@@ -48,6 +48,13 @@ func TestRunDaemonRespondsToHealth(t *testing.T) {
 	if data["socketPath"] != socketPath {
 		t.Fatalf("socketPath = %v, want %s", data["socketPath"], socketPath)
 	}
+	caps, ok := data["capabilities"].([]any)
+	if !ok {
+		t.Fatalf("capabilities = %T, want JSON array", data["capabilities"])
+	}
+	if !containsCapability(caps, "mark_read") || !containsCapability(caps, "quoted_send_text") {
+		t.Fatalf("capabilities = %v, want mark_read and quoted_send_text", caps)
+	}
 
 	cancel()
 	select {
@@ -58,6 +65,15 @@ func TestRunDaemonRespondsToHealth(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatalf("RunDaemon did not stop")
 	}
+}
+
+func containsCapability(caps []any, target string) bool {
+	for _, cap := range caps {
+		if cap == target {
+			return true
+		}
+	}
+	return false
 }
 
 func TestRunDaemonRejectsInvalidCommand(t *testing.T) {

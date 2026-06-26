@@ -267,6 +267,7 @@ func (a *App) handleDaemonConn(ctx context.Context, conn net.Conn, queue *daemon
 				"queueDepth":      len(queue.slots),
 				"queueMaxDepth":   cap(queue.slots),
 				"subscriberCount": subscribers.count(),
+				"capabilities":    []string{"send_text", "send_react", "mark_read", "quoted_send_text"},
 				"ts":              time.Now().UTC().Format(time.RFC3339Nano),
 			}})
 			continue
