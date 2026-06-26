@@ -184,7 +184,29 @@ func TestSyncStoresDisplayText(t *testing.T) {
 		},
 	}
 
-	f.connectEvents = []interface{}{textMsg, imageMsg, replyMsg, reactionMsg}
+	editType := waProto.ProtocolMessage_MESSAGE_EDIT
+	editMsg := &events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{
+				Chat:     chat,
+				Sender:   chat,
+				IsFromMe: false,
+				IsGroup:  false,
+			},
+			ID:        "m-edit",
+			Timestamp: base.Add(5 * time.Second),
+			PushName:  "Alice",
+		},
+		Message: &waProto.Message{
+			ProtocolMessage: &waProto.ProtocolMessage{
+				Type:          &editType,
+				Key:           &waProto.MessageKey{ID: proto.String("m-text")},
+				EditedMessage: &waProto.Message{Conversation: proto.String("edited text")},
+			},
+		},
+	}
+
+	f.connectEvents = []interface{}{textMsg, imageMsg, replyMsg, reactionMsg, editMsg}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
@@ -198,16 +220,16 @@ func TestSyncStoresDisplayText(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Sync: %v", err)
 	}
-	if res.MessagesStored != 4 {
-		t.Fatalf("expected 4 MessagesStored, got %d", res.MessagesStored)
+	if res.MessagesStored != 5 {
+		t.Fatalf("expected 5 MessagesStored, got %d", res.MessagesStored)
 	}
 
 	msg, err := a.db.GetMessage(chat.String(), "m-text")
 	if err != nil {
 		t.Fatalf("GetMessage text: %v", err)
 	}
-	if msg.DisplayText != "hello" {
-		t.Fatalf("expected display text 'hello', got %q", msg.DisplayText)
+	if msg.Text != "edited text" || msg.DisplayText != "edited text" {
+		t.Fatalf("unexpected edited original message: %+v", msg)
 	}
 
 	msg, err = a.db.GetMessage(chat.String(), "m-image")
@@ -232,6 +254,14 @@ func TestSyncStoresDisplayText(t *testing.T) {
 	}
 	if msg.DisplayText != "Reacted 👍 to hello" {
 		t.Fatalf("unexpected reaction display text: %q", msg.DisplayText)
+	}
+
+	msg, err = a.db.GetMessage(chat.String(), "m-edit")
+	if err != nil {
+		t.Fatalf("GetMessage edit: %v", err)
+	}
+	if msg.DisplayText != "Edited hello → edited text" {
+		t.Fatalf("unexpected edit display text: %q", msg.DisplayText)
 	}
 }
 

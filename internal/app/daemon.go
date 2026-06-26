@@ -45,8 +45,9 @@ type DaemonEvent struct {
 	Timestamp   string `json:"timestamp"`
 	FromMe      bool   `json:"fromMe"`
 	Text        string `json:"text,omitempty"`
-	DisplayText string `json:"displayText,omitempty"`
-	MediaType   string `json:"mediaType,omitempty"`
+	DisplayText  string `json:"displayText,omitempty"`
+	MediaType    string `json:"mediaType,omitempty"`
+	EditTargetID string `json:"editTargetMsgId,omitempty"`
 }
 
 type DaemonCommand struct {
@@ -128,7 +129,8 @@ func (a *App) RunDaemon(ctx context.Context, opts DaemonOptions) error {
 		if pm.ID == "" || pm.Chat.IsEmpty() {
 			return
 		}
-		if err := a.storeParsedMessage(ctx, pm); err != nil {
+		displayText, err := a.storeParsedMessage(ctx, pm)
+		if err != nil {
 			sendDaemonError(errCh, fmt.Errorf("store daemon live message: %w", err))
 			return
 		}
@@ -146,8 +148,9 @@ func (a *App) RunDaemon(ctx context.Context, opts DaemonOptions) error {
 			Timestamp:   pm.Timestamp.UTC().Format(time.RFC3339Nano),
 			FromMe:      pm.FromMe,
 			Text:        pm.Text,
-			DisplayText: a.buildDisplayText(context.Background(), pm),
-			MediaType:   daemonMediaType(pm.Media),
+			DisplayText:  displayText,
+			MediaType:    daemonMediaType(pm.Media),
+			EditTargetID: pm.EditTargetID,
 		})
 	})
 	defer a.wa.RemoveEventHandler(handlerID)

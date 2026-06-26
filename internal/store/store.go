@@ -443,6 +443,19 @@ func (d *DB) UpsertMessage(p UpsertMessageParams) error {
 	return err
 }
 
+func (d *DB) UpdateMessageTextDisplay(chatJID, msgID, text, displayText string) (bool, error) {
+	res, err := d.sql.Exec(`
+		UPDATE messages
+		SET text = ?, display_text = ?
+		WHERE chat_jid = ? AND msg_id = ?
+	`, nullIfEmpty(text), nullIfEmpty(displayText), chatJID, msgID)
+	if err != nil {
+		return false, err
+	}
+	rows, err := res.RowsAffected()
+	return rows > 0, err
+}
+
 func nullIfEmpty(s string) interface{} {
 	s = strings.TrimSpace(s)
 	if s == "" {

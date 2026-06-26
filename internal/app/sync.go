@@ -95,7 +95,7 @@ func (a *App) Sync(ctx context.Context, opts SyncOptions) (SyncResult, error) {
 					}
 				}
 			}
-			if err := a.storeParsedMessage(ctx, pm); err == nil {
+			if _, err := a.storeParsedMessage(ctx, pm); err == nil {
 				messagesStored.Add(1)
 			}
 			if opts.DownloadMedia && pm.Media != nil && pm.ID != "" {
@@ -121,7 +121,7 @@ func (a *App) Sync(ctx context.Context, opts SyncOptions) (SyncResult, error) {
 					if pm.ID == "" || pm.Chat.IsEmpty() {
 						continue
 					}
-					if err := a.storeParsedMessage(ctx, pm); err == nil {
+					if _, err := a.storeParsedMessage(ctx, pm); err == nil {
 						messagesStored.Add(1)
 					}
 					if opts.DownloadMedia && pm.Media != nil && pm.ID != "" {
@@ -223,11 +223,11 @@ func chatKind(chat types.JID) string {
 	return "unknown"
 }
 
-func (a *App) storeParsedMessage(ctx context.Context, pm wa.ParsedMessage) error {
+func (a *App) storeParsedMessage(ctx context.Context, pm wa.ParsedMessage) (string, error) {
 	chatJID := pm.Chat.String()
 	chatName := a.wa.ResolveChatName(ctx, pm.Chat, pm.PushName)
 	if err := a.db.UpsertChat(chatJID, chatKind(pm.Chat), chatName, pm.Timestamp); err != nil {
-		return err
+		return "", err
 	}
 
 	// Best-effort: store contact info for DMs.
@@ -306,8 +306,21 @@ func (a *App) storeParsedMessage(ctx context.Context, pm wa.ParsedMessage) error
 	}
 
 	displayText := a.buildDisplayText(ctx, pm)
+	persistDisplayText := displayText
+	if pm.EditTargetID != "" && pm.EditTargetID == pm.ID {
+		if currentDisplay := baseDisplayText(pm); currentDisplay != "" {
+			updated, err := a.db.UpdateMessageTextDisplay(chatJID, pm.ID, pm.Text, currentDisplay)
+			if err != nil {
+				return "", err
+			}
+			if updated {
+				return displayText, nil
+			}
+			persistDisplayText = currentDisplay
+		}
+	}
 
-	return a.db.UpsertMessage(store.UpsertMessageParams{
+	if err := a.db.UpsertMessage(store.UpsertMessageParams{
 		ChatJID:       chatJID,
 		ChatName:      chatName,
 		MsgID:         pm.ID,
@@ -316,7 +329,7 @@ func (a *App) storeParsedMessage(ctx context.Context, pm wa.ParsedMessage) error
 		Timestamp:     pm.Timestamp,
 		FromMe:        pm.FromMe,
 		Text:          pm.Text,
-		DisplayText:   displayText,
+		DisplayText:   persistDisplayText,
 		MediaType:     mediaType,
 		MediaCaption:  caption,
 		Filename:      filename,
@@ -326,11 +339,36 @@ func (a *App) storeParsedMessage(ctx context.Context, pm wa.ParsedMessage) error
 		FileSHA256:    fileSha,
 		FileEncSHA256: fileEncSha,
 		FileLength:    fileLen,
-	})
+	}); err != nil {
+		return "", err
+	}
+	if pm.EditTargetID != "" && pm.EditTargetID != pm.ID {
+		if currentDisplay := baseDisplayText(pm); currentDisplay != "" {
+			updated, err := a.db.UpdateMessageTextDisplay(chatJID, pm.EditTargetID, pm.Text, currentDisplay)
+			if err != nil {
+				return "", err
+			}
+			if !updated {
+				return displayText, nil
+			}
+		}
+	}
+	return displayText, nil
 }
 
 func (a *App) buildDisplayText(ctx context.Context, pm wa.ParsedMessage) string {
 	base := baseDisplayText(pm)
+
+	if pm.EditTargetID != "" {
+		target := a.lookupMessageEditTargetText(pm.Chat.String(), pm.EditTargetID)
+		if target == "" {
+			target = "message"
+		}
+		if base == "" {
+			base = "(message)"
+		}
+		return fmt.Sprintf("Edited %s → %s", target, base)
+	}
 
 	if pm.ReactionToID != "" || strings.TrimSpace(pm.ReactionEmoji) != "" {
 		target := strings.TrimSpace(pm.ReactionToID)
@@ -389,11 +427,29 @@ func (a *App) lookupMessageDisplayText(chatJID, msgID string) string {
 	if text := strings.TrimSpace(msg.DisplayText); text != "" {
 		return text
 	}
-	if text := strings.TrimSpace(msg.Text); text != "" {
+	return messageBaseText(msg.Text, msg.MediaType)
+}
+
+func (a *App) lookupMessageEditTargetText(chatJID, msgID string) string {
+	if strings.TrimSpace(chatJID) == "" || strings.TrimSpace(msgID) == "" {
+		return ""
+	}
+	msg, err := a.db.GetMessage(chatJID, msgID)
+	if err != nil {
+		return ""
+	}
+	if text := messageBaseText(msg.Text, msg.MediaType); text != "" {
 		return text
 	}
-	if strings.TrimSpace(msg.MediaType) != "" {
-		return "Sent " + mediaLabel(msg.MediaType)
+	return strings.TrimSpace(msg.DisplayText)
+}
+
+func messageBaseText(text, mediaType string) string {
+	if text := strings.TrimSpace(text); text != "" {
+		return text
+	}
+	if strings.TrimSpace(mediaType) != "" {
+		return "Sent " + mediaLabel(mediaType)
 	}
 	return ""
 }

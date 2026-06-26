@@ -34,6 +34,7 @@ type ParsedMessage struct {
 	ReplyToDisplay string
 	ReactionToID   string
 	ReactionEmoji  string
+	EditTargetID   string
 }
 
 func ParseLiveMessage(evt *events.Message) ParsedMessage {
@@ -46,6 +47,9 @@ func ParseLiveMessage(evt *events.Message) ParsedMessage {
 	}
 	if s := evt.Info.Sender.String(); s != "" {
 		msg.SenderJID = s
+	}
+	if evt.IsEdit || evt.Info.Edit == types.EditAttributeMessageEdit {
+		msg.EditTargetID = strings.TrimSpace(evt.Info.ID)
 	}
 
 	extractWAProto(evt.Message, &msg)
@@ -80,6 +84,13 @@ func ParseHistoryMessage(chatJID string, hist *waProto.WebMessageInfo) ParsedMes
 func extractWAProto(m *waProto.Message, pm *ParsedMessage) {
 	if m == nil || pm == nil {
 		return
+	}
+
+	if protocol := m.GetProtocolMessage(); protocol != nil && protocol.GetType() == waProto.ProtocolMessage_MESSAGE_EDIT {
+		if key := protocol.GetKey(); key != nil {
+			pm.EditTargetID = strings.TrimSpace(key.GetID())
+		}
+		extractWAProto(protocol.GetEditedMessage(), pm)
 	}
 
 	if reaction := m.GetReactionMessage(); reaction != nil {
