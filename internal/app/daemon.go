@@ -315,7 +315,15 @@ func (a *App) handleDaemonWriteCommand(ctx context.Context, cmd DaemonCommand) (
 			return nil, err
 		}
 		if strings.TrimSpace(cmd.ReplyToMsgID) != "" {
-			msg := quotedTextMessage(cmd.Message, cmd.ReplyToMsgID, cmd.ReplyToSenderJID, cmd.ReplyToText)
+			replyToSenderJID := strings.TrimSpace(cmd.ReplyToSenderJID)
+			if replyToSenderJID != "" {
+				parsed, err := types.ParseJID(replyToSenderJID)
+				if err != nil {
+					return nil, err
+				}
+				replyToSenderJID = parsed.ToNonAD().String()
+			}
+			msg := quotedTextMessage(cmd.Message, cmd.ReplyToMsgID, replyToSenderJID, cmd.ReplyToText)
 			id, err := a.wa.SendProtoMessage(ctx, jid, msg)
 			if err != nil {
 				return nil, err
@@ -441,6 +449,9 @@ func validateDaemonCommand(cmd DaemonCommand) error {
 		if strings.TrimSpace(cmd.Message) == "" {
 			return errors.New("send_text requires message")
 		}
+		if strings.TrimSpace(cmd.ReplyToMsgID) != "" && daemonCommandChatIsGroup(cmd.ChatJID) && strings.TrimSpace(cmd.ReplyToSenderJID) == "" {
+			return errors.New("send_text quoted replies require replyToSenderJid for group chats")
+		}
 	case "mark_read":
 		if strings.TrimSpace(cmd.ChatJID) == "" {
 			return errors.New("mark_read requires chatJid")
@@ -455,6 +466,9 @@ func validateDaemonCommand(cmd DaemonCommand) error {
 		}
 		if strings.TrimSpace(cmd.Timestamp) == "" {
 			return errors.New("mark_read requires timestamp")
+		}
+		if daemonCommandChatIsGroup(cmd.ChatJID) && strings.TrimSpace(cmd.SenderJID) == "" {
+			return errors.New("mark_read requires senderJid for group chats")
 		}
 	case "send_react":
 		if strings.TrimSpace(cmd.ChatJID) == "" {
@@ -489,6 +503,11 @@ func validateDaemonCommand(cmd DaemonCommand) error {
 		}
 	}
 	return nil
+}
+
+func daemonCommandChatIsGroup(chatJID string) bool {
+	jid, err := types.ParseJID(chatJID)
+	return err == nil && jid.Server == types.GroupServer
 }
 
 func newDaemonWriteQueue(limit int, handler func(context.Context, DaemonCommand) (any, error)) *daemonWriteQueue {

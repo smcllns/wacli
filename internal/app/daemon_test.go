@@ -41,6 +41,26 @@ func TestValidateDaemonCommandRejectsBlankMarkReadMessageIDs(t *testing.T) {
 	}
 }
 
+func TestValidateDaemonCommandRequiresSenderForGroupMarkRead(t *testing.T) {
+	cmd, err := parseDaemonCommand([]byte(`{"type":"mark_read","chatJid":"120363427307015739@g.us","msgIds":["m1"],"timestamp":"2026-06-26T15:00:00Z"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateDaemonCommand(cmd); err == nil || err.Error() != "mark_read requires senderJid for group chats" {
+		t.Fatalf("err = %v, want group sender requirement", err)
+	}
+}
+
+func TestValidateDaemonCommandRequiresReplySenderForGroupQuotedText(t *testing.T) {
+	cmd, err := parseDaemonCommand([]byte(`{"type":"send_text","chatJid":"120363427307015739@g.us","message":"reply","replyToMsgId":"orig"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateDaemonCommand(cmd); err == nil || err.Error() != "send_text quoted replies require replyToSenderJid for group chats" {
+		t.Fatalf("err = %v, want group reply sender requirement", err)
+	}
+}
+
 func TestDaemonWriteQueueRejectsWhenFull(t *testing.T) {
 	q := newDaemonWriteQueue(1, func(ctx context.Context, cmd DaemonCommand) (any, error) {
 		<-ctx.Done()
