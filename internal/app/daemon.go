@@ -448,6 +448,11 @@ func validateDaemonCommand(cmd DaemonCommand) error {
 		if len(cmd.MsgIDs) == 0 {
 			return errors.New("mark_read requires msgIds")
 		}
+		for _, id := range cmd.MsgIDs {
+			if strings.TrimSpace(id) == "" {
+				return errors.New("mark_read msgIds cannot contain blanks")
+			}
+		}
 		if strings.TrimSpace(cmd.Timestamp) == "" {
 			return errors.New("mark_read requires timestamp")
 		}

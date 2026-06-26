@@ -31,6 +31,16 @@ func TestValidateDaemonCommandRequiresChatJIDForSendText(t *testing.T) {
 	}
 }
 
+func TestValidateDaemonCommandRejectsBlankMarkReadMessageIDs(t *testing.T) {
+	cmd, err := parseDaemonCommand([]byte(`{"type":"mark_read","chatJid":"120@g.us","msgIds":["m1","  "],"timestamp":"2026-06-26T15:00:00Z"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateDaemonCommand(cmd); err == nil || err.Error() != "mark_read msgIds cannot contain blanks" {
+		t.Fatalf("err = %v, want blank msgIds rejection", err)
+	}
+}
+
 func TestDaemonWriteQueueRejectsWhenFull(t *testing.T) {
 	q := newDaemonWriteQueue(1, func(ctx context.Context, cmd DaemonCommand) (any, error) {
 		<-ctx.Done()
