@@ -364,6 +364,167 @@ func TestRunDaemonSubscribeEmitsStoredLiveMessage(t *testing.T) {
 	}
 }
 
+func TestRunDaemonSubscribeEmitsEditedMessage(t *testing.T) {
+	a := newTestAppWithFakeWA(t)
+	fake := a.wa.(*fakeWA)
+	socketPath := shortSocketPath(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = a.RunDaemon(ctx, DaemonOptions{SocketPath: socketPath, QueueSize: 4}) }()
+	waitForUnixSocket(t, socketPath)
+
+	conn, err := net.Dial("unix", socketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	decoder := json.NewDecoder(conn)
+	if _, err := conn.Write([]byte(`{"type":"subscribe"}` + "\n")); err != nil {
+		t.Fatal(err)
+	}
+	var ack DaemonResponse
+	if err := decoder.Decode(&ack); err != nil {
+		t.Fatal(err)
+	}
+	if !ack.Success {
+		t.Fatalf("ack = %+v", ack)
+	}
+
+	chat := types.JID{User: "123", Server: types.DefaultUserServer}
+	fake.emit(&events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{Chat: chat, Sender: chat},
+			ID:            "original",
+			Timestamp:     time.Now().UTC(),
+			PushName:      "Alice",
+		},
+		Message: &waProto.Message{Conversation: proto.String("before")},
+	})
+	var original DaemonEvent
+	if err := decoder.Decode(&original); err != nil {
+		t.Fatal(err)
+	}
+
+	editType := waProto.ProtocolMessage_MESSAGE_EDIT
+	fake.emit(&events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{Chat: chat, Sender: chat},
+			ID:            "edit-event",
+			Timestamp:     time.Now().UTC(),
+			PushName:      "Alice",
+		},
+		Message: &waProto.Message{
+			ProtocolMessage: &waProto.ProtocolMessage{
+				Type:          &editType,
+				Key:           &waProto.MessageKey{ID: proto.String("original")},
+				EditedMessage: &waProto.Message{Conversation: proto.String("after")},
+			},
+		},
+	})
+
+	var event DaemonEvent
+	if err := decoder.Decode(&event); err != nil {
+		t.Fatal(err)
+	}
+	if event.Type != "message" || event.MsgID != "edit-event" || event.Text != "after" || event.DisplayText != "Edited before → after" || event.EditTargetID != "original" || event.RowID <= original.RowID {
+		t.Fatalf("event = %+v original=%+v", event, original)
+	}
+	stored, err := a.db.GetMessage(chat.String(), "original")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Text != "after" || stored.DisplayText != "after" {
+		t.Fatalf("stored original = %+v", stored)
+	}
+}
+
+func TestRunDaemonSubscribeEmitsUnwrappedEditedMessage(t *testing.T) {
+	a := newTestAppWithFakeWA(t)
+	fake := a.wa.(*fakeWA)
+	socketPath := shortSocketPath(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = a.RunDaemon(ctx, DaemonOptions{SocketPath: socketPath, QueueSize: 4}) }()
+	waitForUnixSocket(t, socketPath)
+
+	conn, err := net.Dial("unix", socketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	decoder := json.NewDecoder(conn)
+	if _, err := conn.Write([]byte(`{"type":"subscribe"}` + "\n")); err != nil {
+		t.Fatal(err)
+	}
+	var ack DaemonResponse
+	if err := decoder.Decode(&ack); err != nil {
+		t.Fatal(err)
+	}
+	if !ack.Success {
+		t.Fatalf("ack = %+v", ack)
+	}
+
+	chat := types.JID{User: "123", Server: types.DefaultUserServer}
+	originalTimestamp := time.Now().UTC().Add(-time.Minute)
+	fake.emit(&events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{Chat: chat, Sender: chat},
+			ID:            "original",
+			Timestamp:     originalTimestamp,
+			PushName:      "Alice",
+		},
+		Message: &waProto.Message{Conversation: proto.String("before")},
+	})
+	var original DaemonEvent
+	if err := decoder.Decode(&original); err != nil {
+		t.Fatal(err)
+	}
+
+	fake.emit(&events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{Chat: chat, Sender: chat},
+			ID:            "original",
+			Timestamp:     time.Now().UTC(),
+			PushName:      "Alice",
+			Edit:          types.EditAttributeMessageEdit,
+		},
+		Message: &waProto.Message{Conversation: proto.String("after")},
+	})
+
+	var event DaemonEvent
+	if err := decoder.Decode(&event); err != nil {
+		t.Fatal(err)
+	}
+	if event.Type != "message" || event.MsgID != "original" || event.Text != "after" || event.DisplayText != "Edited before → after" || event.EditTargetID != "original" || event.RowID != original.RowID {
+		t.Fatalf("event = %+v original=%+v", event, original)
+	}
+	stored, err := a.db.GetMessage(chat.String(), "original")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Text != "after" || stored.DisplayText != "after" || !stored.Timestamp.Equal(originalTimestamp.Truncate(time.Second)) {
+		t.Fatalf("stored original = %+v", stored)
+	}
+
+	fake.emit(&events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{Chat: chat, Sender: chat},
+			ID:            "original",
+			Timestamp:     time.Now().UTC(),
+			PushName:      "Alice",
+			Edit:          types.EditAttributeMessageEdit,
+		},
+		Message: &waProto.Message{Conversation: proto.String("final")},
+	})
+
+	if err := decoder.Decode(&event); err != nil {
+		t.Fatal(err)
+	}
+	if event.Type != "message" || event.MsgID != "original" || event.Text != "final" || event.DisplayText != "Edited after → final" || event.EditTargetID != "original" || event.RowID != original.RowID {
+		t.Fatalf("event = %+v original=%+v", event, original)
+	}
+}
+
 func TestRunDaemonDoesNotUnlinkLiveSocket(t *testing.T) {
 	socketPath := shortSocketPath(t)
 	listener, err := net.Listen("unix", socketPath)
