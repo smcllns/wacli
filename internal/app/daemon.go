@@ -450,6 +450,9 @@ func validateDaemonCommand(cmd DaemonCommand) error {
 		if strings.TrimSpace(cmd.Message) == "" {
 			return errors.New("send_text requires message")
 		}
+		if strings.TrimSpace(cmd.ReplyToMsgID) == "" && daemonCommandHasReplyField(cmd) {
+			return errors.New("send_text quoted replies require replyToMsgId")
+		}
 		if strings.TrimSpace(cmd.ReplyToMsgID) != "" && daemonCommandChatIsGroup(cmd.ChatJID) && strings.TrimSpace(cmd.ReplyToSenderJID) == "" {
 			return errors.New("send_text quoted replies require replyToSenderJid for group chats")
 		}
@@ -509,6 +512,10 @@ func validateDaemonCommand(cmd DaemonCommand) error {
 func daemonCommandChatIsGroup(chatJID string) bool {
 	jid, err := types.ParseJID(chatJID)
 	return err == nil && jid.Server == types.GroupServer
+}
+
+func daemonCommandHasReplyField(cmd DaemonCommand) bool {
+	return strings.TrimSpace(cmd.ReplyToSenderJID) != "" || strings.TrimSpace(cmd.ReplyToText) != ""
 }
 
 func newDaemonWriteQueue(limit int, handler func(context.Context, DaemonCommand) (any, error)) *daemonWriteQueue {

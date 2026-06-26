@@ -51,6 +51,16 @@ func TestValidateDaemonCommandRequiresSenderForGroupMarkRead(t *testing.T) {
 	}
 }
 
+func TestValidateDaemonCommandRequiresReplyMessageIDForQuotedText(t *testing.T) {
+	cmd, err := parseDaemonCommand([]byte(`{"type":"send_text","chatJid":"15551234567@s.whatsapp.net","message":"reply","replyToText":"question"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateDaemonCommand(cmd); err == nil || err.Error() != "send_text quoted replies require replyToMsgId" {
+		t.Fatalf("err = %v, want reply message id requirement", err)
+	}
+}
+
 func TestValidateDaemonCommandRequiresReplySenderForGroupQuotedText(t *testing.T) {
 	cmd, err := parseDaemonCommand([]byte(`{"type":"send_text","chatJid":"120363427307015739@g.us","message":"reply","replyToMsgId":"orig"}`))
 	if err != nil {
