@@ -354,7 +354,7 @@ func (a *App) handleDaemonWriteCommand(ctx context.Context, cmd DaemonCommand) (
 		}
 		ids := make([]types.MessageID, len(cmd.MsgIDs))
 		for i, id := range cmd.MsgIDs {
-			ids[i] = types.MessageID(id)
+			ids[i] = types.MessageID(strings.TrimSpace(id))
 		}
 		if err := a.wa.MarkRead(ctx, ids, timestamp, chat, sender); err != nil {
 			return nil, err

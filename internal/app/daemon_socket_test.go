@@ -178,7 +178,7 @@ func TestRunDaemonHandlesMarkReadInProcess(t *testing.T) {
 	go func() { _ = a.RunDaemon(ctx, DaemonOptions{SocketPath: socketPath, QueueSize: 4}) }()
 	waitForUnixSocket(t, socketPath)
 
-	resp := sendDaemonTestCommand(t, socketPath, `{"type":"mark_read","chatJid":"120363427307015739@g.us","msgIds":["m1"],"senderJid":"15551234567@s.whatsapp.net","timestamp":"2026-06-26T15:00:00Z"}`)
+	resp := sendDaemonTestCommand(t, socketPath, `{"type":"mark_read","chatJid":"120363427307015739@g.us","msgIds":[" m1 "],"senderJid":"15551234567@s.whatsapp.net","timestamp":"2026-06-26T15:00:00Z"}`)
 	if !resp.Success {
 		t.Fatalf("resp = %+v", resp)
 	}
