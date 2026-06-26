@@ -15,8 +15,10 @@ import (
 	"time"
 
 	"github.com/steipete/wacli/internal/wa"
+	waProto "go.mau.fi/whatsmeow/binary/proto"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
+	"google.golang.org/protobuf/proto"
 )
 
 var ErrDaemonQueueFull = errors.New("daemon write queue full")
@@ -48,14 +50,19 @@ type DaemonEvent struct {
 }
 
 type DaemonCommand struct {
-	Type      string `json:"type"`
-	ChatJID   string `json:"chatJid,omitempty"`
-	Message   string `json:"message,omitempty"`
-	SenderJID string `json:"senderJid,omitempty"`
-	MsgID     string `json:"msgId,omitempty"`
-	Reaction  string `json:"reaction,omitempty"`
-	FilePath  string `json:"filePath,omitempty"`
-	Name      string `json:"name,omitempty"`
+	Type             string   `json:"type"`
+	ChatJID          string   `json:"chatJid,omitempty"`
+	Message          string   `json:"message,omitempty"`
+	SenderJID        string   `json:"senderJid,omitempty"`
+	MsgID            string   `json:"msgId,omitempty"`
+	MsgIDs           []string `json:"msgIds,omitempty"`
+	Timestamp        string   `json:"timestamp,omitempty"`
+	Reaction         string   `json:"reaction,omitempty"`
+	FilePath         string   `json:"filePath,omitempty"`
+	Name             string   `json:"name,omitempty"`
+	ReplyToMsgID     string   `json:"replyToMsgId,omitempty"`
+	ReplyToSenderJID string   `json:"replyToSenderJid,omitempty"`
+	ReplyToText      string   `json:"replyToText,omitempty"`
 }
 
 type DaemonResult struct {
@@ -260,6 +267,7 @@ func (a *App) handleDaemonConn(ctx context.Context, conn net.Conn, queue *daemon
 				"queueDepth":      len(queue.slots),
 				"queueMaxDepth":   cap(queue.slots),
 				"subscriberCount": subscribers.count(),
+				"capabilities":    []string{"send_text", "send_react", "mark_read", "quoted_send_text"},
 				"ts":              time.Now().UTC().Format(time.RFC3339Nano),
 			}})
 			continue
@@ -307,11 +315,52 @@ func (a *App) handleDaemonWriteCommand(ctx context.Context, cmd DaemonCommand) (
 		if err != nil {
 			return nil, err
 		}
+		if strings.TrimSpace(cmd.ReplyToMsgID) != "" {
+			replyToMsgID := strings.TrimSpace(cmd.ReplyToMsgID)
+			replyToSenderJID := strings.TrimSpace(cmd.ReplyToSenderJID)
+			if replyToSenderJID != "" {
+				parsed, err := types.ParseJID(replyToSenderJID)
+				if err != nil {
+					return nil, err
+				}
+				replyToSenderJID = parsed.ToNonAD().String()
+			}
+			msg := quotedTextMessage(cmd.Message, replyToMsgID, replyToSenderJID, cmd.ReplyToText)
+			id, err := a.wa.SendProtoMessage(ctx, jid, msg)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"message_id": id}, nil
+		}
 		id, err := a.wa.SendText(ctx, jid, cmd.Message)
 		if err != nil {
 			return nil, err
 		}
 		return map[string]any{"message_id": id}, nil
+	case "mark_read":
+		chat, err := types.ParseJID(cmd.ChatJID)
+		if err != nil {
+			return nil, err
+		}
+		timestamp, err := time.Parse(time.RFC3339Nano, cmd.Timestamp)
+		if err != nil {
+			return nil, fmt.Errorf("invalid mark_read timestamp: %w", err)
+		}
+		var sender types.JID
+		if strings.TrimSpace(cmd.SenderJID) != "" {
+			sender, err = types.ParseJID(cmd.SenderJID)
+			if err != nil {
+				return nil, err
+			}
+		}
+		ids := make([]types.MessageID, len(cmd.MsgIDs))
+		for i, id := range cmd.MsgIDs {
+			ids[i] = types.MessageID(strings.TrimSpace(id))
+		}
+		if err := a.wa.MarkRead(ctx, ids, timestamp, chat, sender); err != nil {
+			return nil, err
+		}
+		return map[string]any{"read": true, "count": len(ids)}, nil
 	case "send_react":
 		chat, err := types.ParseJID(cmd.ChatJID)
 		if err != nil {
@@ -351,6 +400,24 @@ func (a *App) handleDaemonWriteCommand(ctx context.Context, cmd DaemonCommand) (
 	}
 }
 
+func quotedTextMessage(text, replyToMsgID, replyToSenderJID, replyToText string) *waProto.Message {
+	ctx := &waProto.ContextInfo{
+		StanzaID: proto.String(replyToMsgID),
+	}
+	if strings.TrimSpace(replyToSenderJID) != "" {
+		ctx.Participant = proto.String(replyToSenderJID)
+	}
+	if text := strings.TrimSpace(replyToText); text != "" {
+		ctx.QuotedMessage = &waProto.Message{Conversation: proto.String(text)}
+	}
+	return &waProto.Message{
+		ExtendedTextMessage: &waProto.ExtendedTextMessage{
+			Text:        proto.String(text),
+			ContextInfo: ctx,
+		},
+	}
+}
+
 func daemonMediaType(media *wa.Media) string {
 	if media == nil {
 		return ""
@@ -368,7 +435,7 @@ func parseDaemonCommand(line []byte) (DaemonCommand, error) {
 		return DaemonCommand{}, errors.New("daemon command type is required")
 	}
 	switch cmd.Type {
-	case "health", "subscribe", "send_text", "send_react", "send_file", "group_rename", "group_photo", "refresh_groups", "shutdown":
+	case "health", "subscribe", "send_text", "mark_read", "send_react", "send_file", "group_rename", "group_photo", "refresh_groups", "shutdown":
 		return cmd, nil
 	default:
 		return DaemonCommand{}, fmt.Errorf("unknown daemon command type %q", cmd.Type)
@@ -383,6 +450,30 @@ func validateDaemonCommand(cmd DaemonCommand) error {
 		}
 		if strings.TrimSpace(cmd.Message) == "" {
 			return errors.New("send_text requires message")
+		}
+		if strings.TrimSpace(cmd.ReplyToMsgID) == "" && daemonCommandHasReplyField(cmd) {
+			return errors.New("send_text quoted replies require replyToMsgId")
+		}
+		if strings.TrimSpace(cmd.ReplyToMsgID) != "" && daemonCommandChatIsGroup(cmd.ChatJID) && strings.TrimSpace(cmd.ReplyToSenderJID) == "" {
+			return errors.New("send_text quoted replies require replyToSenderJid for group chats")
+		}
+	case "mark_read":
+		if strings.TrimSpace(cmd.ChatJID) == "" {
+			return errors.New("mark_read requires chatJid")
+		}
+		if len(cmd.MsgIDs) == 0 {
+			return errors.New("mark_read requires msgIds")
+		}
+		for _, id := range cmd.MsgIDs {
+			if strings.TrimSpace(id) == "" {
+				return errors.New("mark_read msgIds cannot contain blanks")
+			}
+		}
+		if strings.TrimSpace(cmd.Timestamp) == "" {
+			return errors.New("mark_read requires timestamp")
+		}
+		if daemonCommandChatIsGroup(cmd.ChatJID) && strings.TrimSpace(cmd.SenderJID) == "" {
+			return errors.New("mark_read requires senderJid for group chats")
 		}
 	case "send_react":
 		if strings.TrimSpace(cmd.ChatJID) == "" {
@@ -417,6 +508,15 @@ func validateDaemonCommand(cmd DaemonCommand) error {
 		}
 	}
 	return nil
+}
+
+func daemonCommandChatIsGroup(chatJID string) bool {
+	jid, err := types.ParseJID(chatJID)
+	return err == nil && jid.Server == types.GroupServer
+}
+
+func daemonCommandHasReplyField(cmd DaemonCommand) bool {
+	return strings.TrimSpace(cmd.ReplyToSenderJID) != "" || strings.TrimSpace(cmd.ReplyToText) != ""
 }
 
 func newDaemonWriteQueue(limit int, handler func(context.Context, DaemonCommand) (any, error)) *daemonWriteQueue {

@@ -33,6 +33,14 @@ type fakeWA struct {
 
 	lastTextTo      types.JID
 	lastTextMessage string
+
+	lastProtoTo      types.JID
+	lastProtoMessage *waProto.Message
+
+	lastReadIDs       []types.MessageID
+	lastReadTimestamp time.Time
+	lastReadChat      types.JID
+	lastReadSender    types.JID
 }
 
 func newFakeWA() *fakeWA {
@@ -220,6 +228,10 @@ func (f *fakeWA) SendText(ctx context.Context, to types.JID, text string) (types
 }
 
 func (f *fakeWA) SendProtoMessage(ctx context.Context, to types.JID, msg *waProto.Message) (types.MessageID, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.lastProtoTo = to
+	f.lastProtoMessage = msg
 	return types.MessageID("msgid"), nil
 }
 
@@ -228,6 +240,12 @@ func (f *fakeWA) Upload(ctx context.Context, data []byte, mediaType whatsmeow.Me
 }
 
 func (f *fakeWA) MarkRead(ctx context.Context, ids []types.MessageID, timestamp time.Time, chat, sender types.JID) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.lastReadIDs = append([]types.MessageID{}, ids...)
+	f.lastReadTimestamp = timestamp
+	f.lastReadChat = chat
+	f.lastReadSender = sender
 	return nil
 }
 
