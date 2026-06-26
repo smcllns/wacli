@@ -41,13 +41,13 @@ func TestValidateDaemonCommandRejectsBlankMarkReadMessageIDs(t *testing.T) {
 	}
 }
 
-func TestValidateDaemonCommandRequiresSenderForGroupMarkRead(t *testing.T) {
-	cmd, err := parseDaemonCommand([]byte(`{"type":"mark_read","chatJid":"120363427307015739@g.us","msgIds":["m1"],"timestamp":"2026-06-26T15:00:00Z"}`))
+func TestValidateDaemonCommandAllowsGroupMarkReadWithoutReceiptMetadata(t *testing.T) {
+	cmd, err := parseDaemonCommand([]byte(`{"type":"mark_read","chatJid":"120363427307015739@g.us","msgIds":["m1"]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := validateDaemonCommand(cmd); err == nil || err.Error() != "mark_read requires senderJid for group chats" {
-		t.Fatalf("err = %v, want group sender requirement", err)
+	if err := validateDaemonCommand(cmd); err != nil {
+		t.Fatalf("err = %v, want group mark_read to allow DB-derived metadata", err)
 	}
 }
 

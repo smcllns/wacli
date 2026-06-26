@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/steipete/wacli/internal/store"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
@@ -194,6 +195,77 @@ func TestRunDaemonHandlesMarkReadInProcess(t *testing.T) {
 		t.Fatalf("read ids = %+v", fake.lastReadIDs)
 	}
 	if got := fake.lastReadTimestamp.Format(time.RFC3339); got != "2026-06-26T15:00:00Z" {
+		t.Fatalf("read timestamp = %s", got)
+	}
+}
+
+func TestRunDaemonMarkReadDerivesStoredSenderAndTimestamp(t *testing.T) {
+	a := newTestAppWithFakeWA(t)
+	fake := a.wa.(*fakeWA)
+	storedTimestamp := time.Date(2026, 6, 26, 17, 44, 55, 0, time.UTC)
+	if err := a.db.UpsertChat("120363427307015739@g.us", "group", "Test Group", storedTimestamp); err != nil {
+		t.Fatalf("UpsertChat: %v", err)
+	}
+	if err := a.db.UpsertMessage(store.UpsertMessageParams{
+		ChatJID:   "120363427307015739@g.us",
+		MsgID:     "m1",
+		SenderJID: "15551234567@s.whatsapp.net",
+		Timestamp: storedTimestamp,
+		Text:      "ping",
+	}); err != nil {
+		t.Fatalf("UpsertMessage: %v", err)
+	}
+	socketPath := shortSocketPath(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = a.RunDaemon(ctx, DaemonOptions{SocketPath: socketPath, QueueSize: 4}) }()
+	waitForUnixSocket(t, socketPath)
+
+	resp := sendDaemonTestCommand(t, socketPath, `{"type":"mark_read","chatJid":"120363427307015739@g.us","msgIds":["m1"]}`)
+	if !resp.Success {
+		t.Fatalf("resp = %+v", resp)
+	}
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if got := fake.lastReadSender.String(); got != "15551234567@s.whatsapp.net" {
+		t.Fatalf("read sender = %s", got)
+	}
+	if got := fake.lastReadTimestamp.Format(time.RFC3339); got != "2026-06-26T17:44:55Z" {
+		t.Fatalf("read timestamp = %s", got)
+	}
+}
+
+func TestRunDaemonMarkReadFallsBackToCommandSenderWhenStoredSenderMissing(t *testing.T) {
+	a := newTestAppWithFakeWA(t)
+	fake := a.wa.(*fakeWA)
+	storedTimestamp := time.Date(2026, 6, 26, 17, 44, 55, 0, time.UTC)
+	if err := a.db.UpsertChat("120363427307015739@g.us", "group", "Test Group", storedTimestamp); err != nil {
+		t.Fatalf("UpsertChat: %v", err)
+	}
+	if err := a.db.UpsertMessage(store.UpsertMessageParams{
+		ChatJID:   "120363427307015739@g.us",
+		MsgID:     "m1",
+		Timestamp: storedTimestamp,
+		Text:      "ping",
+	}); err != nil {
+		t.Fatalf("UpsertMessage: %v", err)
+	}
+	socketPath := shortSocketPath(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = a.RunDaemon(ctx, DaemonOptions{SocketPath: socketPath, QueueSize: 4}) }()
+	waitForUnixSocket(t, socketPath)
+
+	resp := sendDaemonTestCommand(t, socketPath, `{"type":"mark_read","chatJid":"120363427307015739@g.us","msgIds":["m1"],"senderJid":"15551234567@s.whatsapp.net"}`)
+	if !resp.Success {
+		t.Fatalf("resp = %+v", resp)
+	}
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if got := fake.lastReadSender.String(); got != "15551234567@s.whatsapp.net" {
+		t.Fatalf("read sender = %s", got)
+	}
+	if got := fake.lastReadTimestamp.Format(time.RFC3339); got != "2026-06-26T17:44:55Z" {
 		t.Fatalf("read timestamp = %s", got)
 	}
 }

@@ -342,9 +342,17 @@ func (a *App) handleDaemonWriteCommand(ctx context.Context, cmd DaemonCommand) (
 		if err != nil {
 			return nil, err
 		}
-		timestamp, err := time.Parse(time.RFC3339Nano, cmd.Timestamp)
-		if err != nil {
-			return nil, fmt.Errorf("invalid mark_read timestamp: %w", err)
+		ids := make([]types.MessageID, len(cmd.MsgIDs))
+		for i, id := range cmd.MsgIDs {
+			ids[i] = types.MessageID(strings.TrimSpace(id))
+		}
+
+		var timestamp time.Time
+		if strings.TrimSpace(cmd.Timestamp) != "" {
+			timestamp, err = time.Parse(time.RFC3339Nano, cmd.Timestamp)
+			if err != nil {
+				return nil, fmt.Errorf("invalid mark_read timestamp: %w", err)
+			}
 		}
 		var sender types.JID
 		if strings.TrimSpace(cmd.SenderJID) != "" {
@@ -353,9 +361,22 @@ func (a *App) handleDaemonWriteCommand(ctx context.Context, cmd DaemonCommand) (
 				return nil, err
 			}
 		}
-		ids := make([]types.MessageID, len(cmd.MsgIDs))
-		for i, id := range cmd.MsgIDs {
-			ids[i] = types.MessageID(strings.TrimSpace(id))
+		if msg, err := a.db.GetMessage(chat.String(), string(ids[len(ids)-1])); err == nil {
+			if !msg.Timestamp.IsZero() {
+				timestamp = msg.Timestamp
+			}
+			if strings.TrimSpace(msg.SenderJID) != "" {
+				sender, err = types.ParseJID(msg.SenderJID)
+				if err != nil {
+					return nil, err
+				}
+			}
+		}
+		if timestamp.IsZero() {
+			return nil, errors.New("mark_read requires timestamp when message timestamp is not in DB")
+		}
+		if daemonCommandChatIsGroup(chat.String()) && sender.IsEmpty() {
+			return nil, errors.New("mark_read requires senderJid for group chats when message sender is not in DB")
 		}
 		if err := a.wa.MarkRead(ctx, ids, timestamp, chat, sender); err != nil {
 			return nil, err
@@ -468,12 +489,6 @@ func validateDaemonCommand(cmd DaemonCommand) error {
 			if strings.TrimSpace(id) == "" {
 				return errors.New("mark_read msgIds cannot contain blanks")
 			}
-		}
-		if strings.TrimSpace(cmd.Timestamp) == "" {
-			return errors.New("mark_read requires timestamp")
-		}
-		if daemonCommandChatIsGroup(cmd.ChatJID) && strings.TrimSpace(cmd.SenderJID) == "" {
-			return errors.New("mark_read requires senderJid for group chats")
 		}
 	case "send_react":
 		if strings.TrimSpace(cmd.ChatJID) == "" {

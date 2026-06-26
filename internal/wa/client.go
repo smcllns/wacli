@@ -214,9 +214,9 @@ func (c *Client) MarkRead(ctx context.Context, ids []types.MessageID, timestamp 
 	if cli == nil || !cli.IsConnected() {
 		return fmt.Errorf("not connected")
 	}
-	// Send presence available so read receipts are visible to the sender
+	// WhatsApp may require availability before emitting visible read receipts.
 	_ = cli.SendPresence(ctx, types.PresenceAvailable)
-	// Force ReceiptTypeRead to send visible read receipts regardless of privacy settings
+	// Request a read receipt; whatsmeow honors account privacy and may downgrade to read-self.
 	err := cli.MarkRead(ctx, ids, timestamp, chat, sender, types.ReceiptTypeRead)
 	// Go back to unavailable
 	_ = cli.SendPresence(ctx, types.PresenceUnavailable)
