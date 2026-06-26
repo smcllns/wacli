@@ -153,6 +153,66 @@ func TestRunDaemonHandlesSendTextInProcess(t *testing.T) {
 	}
 }
 
+func TestRunDaemonHandlesMarkReadInProcess(t *testing.T) {
+	a := newTestAppWithFakeWA(t)
+	fake := a.wa.(*fakeWA)
+	socketPath := shortSocketPath(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = a.RunDaemon(ctx, DaemonOptions{SocketPath: socketPath, QueueSize: 4}) }()
+	waitForUnixSocket(t, socketPath)
+
+	resp := sendDaemonTestCommand(t, socketPath, `{"type":"mark_read","chatJid":"120363427307015739@g.us","msgIds":["m1"],"senderJid":"15551234567@s.whatsapp.net","timestamp":"2026-06-26T15:00:00Z"}`)
+	if !resp.Success {
+		t.Fatalf("resp = %+v", resp)
+	}
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if got := fake.lastReadChat.String(); got != "120363427307015739@g.us" {
+		t.Fatalf("read chat = %s", got)
+	}
+	if got := fake.lastReadSender.String(); got != "15551234567@s.whatsapp.net" {
+		t.Fatalf("read sender = %s", got)
+	}
+	if len(fake.lastReadIDs) != 1 || fake.lastReadIDs[0] != "m1" {
+		t.Fatalf("read ids = %+v", fake.lastReadIDs)
+	}
+	if got := fake.lastReadTimestamp.Format(time.RFC3339); got != "2026-06-26T15:00:00Z" {
+		t.Fatalf("read timestamp = %s", got)
+	}
+}
+
+func TestRunDaemonHandlesQuotedSendTextInProcess(t *testing.T) {
+	a := newTestAppWithFakeWA(t)
+	fake := a.wa.(*fakeWA)
+	socketPath := shortSocketPath(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = a.RunDaemon(ctx, DaemonOptions{SocketPath: socketPath, QueueSize: 4}) }()
+	waitForUnixSocket(t, socketPath)
+
+	resp := sendDaemonTestCommand(t, socketPath, `{"type":"send_text","chatJid":"120363427307015739@g.us","message":"reply","replyToMsgId":"orig","replyToSenderJid":"15551234567@s.whatsapp.net","replyToText":"question"}`)
+	if !resp.Success {
+		t.Fatalf("resp = %+v", resp)
+	}
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if got := fake.lastProtoTo.String(); got != "120363427307015739@g.us" {
+		t.Fatalf("proto to = %s", got)
+	}
+	ext := fake.lastProtoMessage.GetExtendedTextMessage()
+	if ext == nil || ext.GetText() != "reply" {
+		t.Fatalf("extended text = %+v", ext)
+	}
+	ctxInfo := ext.GetContextInfo()
+	if ctxInfo == nil || ctxInfo.GetStanzaID() != "orig" || ctxInfo.GetParticipant() != "15551234567@s.whatsapp.net" {
+		t.Fatalf("context info = %+v", ctxInfo)
+	}
+	if ctxInfo.GetQuotedMessage().GetConversation() != "question" {
+		t.Fatalf("quoted message = %+v", ctxInfo.GetQuotedMessage())
+	}
+}
+
 func sendDaemonTestCommand(t *testing.T, socketPath string, command string) DaemonResponse {
 	t.Helper()
 	conn, err := net.Dial("unix", socketPath)
