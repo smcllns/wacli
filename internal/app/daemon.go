@@ -316,6 +316,7 @@ func (a *App) handleDaemonWriteCommand(ctx context.Context, cmd DaemonCommand) (
 			return nil, err
 		}
 		if strings.TrimSpace(cmd.ReplyToMsgID) != "" {
+			replyToMsgID := strings.TrimSpace(cmd.ReplyToMsgID)
 			replyToSenderJID := strings.TrimSpace(cmd.ReplyToSenderJID)
 			if replyToSenderJID != "" {
 				parsed, err := types.ParseJID(replyToSenderJID)
@@ -324,7 +325,7 @@ func (a *App) handleDaemonWriteCommand(ctx context.Context, cmd DaemonCommand) (
 				}
 				replyToSenderJID = parsed.ToNonAD().String()
 			}
-			msg := quotedTextMessage(cmd.Message, cmd.ReplyToMsgID, replyToSenderJID, cmd.ReplyToText)
+			msg := quotedTextMessage(cmd.Message, replyToMsgID, replyToSenderJID, cmd.ReplyToText)
 			id, err := a.wa.SendProtoMessage(ctx, jid, msg)
 			if err != nil {
 				return nil, err
@@ -406,8 +407,8 @@ func quotedTextMessage(text, replyToMsgID, replyToSenderJID, replyToText string)
 	if strings.TrimSpace(replyToSenderJID) != "" {
 		ctx.Participant = proto.String(replyToSenderJID)
 	}
-	if strings.TrimSpace(replyToText) != "" {
-		ctx.QuotedMessage = &waProto.Message{Conversation: proto.String(replyToText)}
+	if text := strings.TrimSpace(replyToText); text != "" {
+		ctx.QuotedMessage = &waProto.Message{Conversation: proto.String(text)}
 	}
 	return &waProto.Message{
 		ExtendedTextMessage: &waProto.ExtendedTextMessage{

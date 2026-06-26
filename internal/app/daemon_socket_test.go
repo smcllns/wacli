@@ -207,7 +207,7 @@ func TestRunDaemonHandlesQuotedSendTextInProcess(t *testing.T) {
 	go func() { _ = a.RunDaemon(ctx, DaemonOptions{SocketPath: socketPath, QueueSize: 4}) }()
 	waitForUnixSocket(t, socketPath)
 
-	resp := sendDaemonTestCommand(t, socketPath, `{"type":"send_text","chatJid":"120363427307015739@g.us","message":"reply","replyToMsgId":"orig","replyToSenderJid":"15551234567@s.whatsapp.net","replyToText":"question"}`)
+	resp := sendDaemonTestCommand(t, socketPath, `{"type":"send_text","chatJid":"120363427307015739@g.us","message":"reply","replyToMsgId":" orig ","replyToSenderJid":"15551234567@s.whatsapp.net","replyToText":" question "}`)
 	if !resp.Success {
 		t.Fatalf("resp = %+v", resp)
 	}
