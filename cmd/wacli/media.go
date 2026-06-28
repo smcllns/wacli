@@ -45,44 +45,29 @@ func newMediaDownloadCmd(flags *rootFlags) *cobra.Command {
 				return err
 			}
 
-			info, err := a.DB().GetMediaDownloadInfo(chat, id)
-			if err != nil {
-				return err
-			}
-			if info.MediaType == "" || info.DirectPath == "" || len(info.MediaKey) == 0 {
-				return fmt.Errorf("message has no downloadable media metadata (run `wacli sync` first)")
-			}
-
-			target, err := a.ResolveMediaOutputPath(info, outputPath)
-			if err != nil {
-				return err
-			}
-
 			if err := a.Connect(ctx, false, nil); err != nil {
 				return err
 			}
 
-			bytes, err := a.WA().DownloadMediaToFile(ctx, info.DirectPath, info.FileEncSHA256, info.FileSHA256, info.MediaKey, info.FileLength, info.MediaType, "", target)
+			result, err := a.DownloadMedia(ctx, chat, id, outputPath)
 			if err != nil {
 				return err
 			}
-			now := time.Now().UTC()
-			_ = a.DB().MarkMediaDownloaded(info.ChatJID, info.MsgID, target, now)
 
 			resp := map[string]any{
-				"chat":          info.ChatJID,
-				"id":            info.MsgID,
-				"path":          target,
-				"bytes":         bytes,
-				"media_type":    info.MediaType,
-				"mime_type":     info.MimeType,
+				"chat":          result.ChatJID,
+				"id":            result.MsgID,
+				"path":          result.Path,
+				"bytes":         result.Bytes,
+				"media_type":    result.MediaType,
+				"mime_type":     result.MimeType,
 				"downloaded":    true,
-				"downloaded_at": now.Format(time.RFC3339Nano),
+				"downloaded_at": result.DownloadedAt.Format(time.RFC3339Nano),
 			}
 			if flags.asJSON {
 				return out.WriteJSON(os.Stdout, resp)
 			}
-			fmt.Fprintf(os.Stdout, "%s (%d bytes)\n", target, bytes)
+			fmt.Fprintf(os.Stdout, "%s (%d bytes)\n", result.Path, result.Bytes)
 			return nil
 		},
 	}

@@ -60,6 +60,7 @@ type DaemonCommand struct {
 	Timestamp        string   `json:"timestamp,omitempty"`
 	Reaction         string   `json:"reaction,omitempty"`
 	FilePath         string   `json:"filePath,omitempty"`
+	OutputPath       string   `json:"outputPath,omitempty"`
 	Name             string   `json:"name,omitempty"`
 	ReplyToMsgID     string   `json:"replyToMsgId,omitempty"`
 	ReplyToSenderJID string   `json:"replyToSenderJid,omitempty"`
@@ -270,7 +271,7 @@ func (a *App) handleDaemonConn(ctx context.Context, conn net.Conn, queue *daemon
 				"queueDepth":      len(queue.slots),
 				"queueMaxDepth":   cap(queue.slots),
 				"subscriberCount": subscribers.count(),
-				"capabilities":    []string{"send_text", "send_file", "send_react", "mark_read", "quoted_send_text"},
+				"capabilities":    []string{"send_text", "send_file", "download_media", "send_react", "mark_read", "quoted_send_text"},
 				"ts":              time.Now().UTC().Format(time.RFC3339Nano),
 			}})
 			continue
@@ -402,6 +403,21 @@ func (a *App) handleDaemonWriteCommand(ctx context.Context, cmd DaemonCommand) (
 			"persisted":     result.Persisted,
 			"persist_error": result.PersistError,
 		}, nil
+	case "download_media":
+		result, err := a.DownloadMedia(ctx, cmd.ChatJID, cmd.MsgID, cmd.OutputPath)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{
+			"chat":          result.ChatJID,
+			"id":            result.MsgID,
+			"path":          result.Path,
+			"bytes":         result.Bytes,
+			"media_type":    result.MediaType,
+			"mime_type":     result.MimeType,
+			"downloaded":    true,
+			"downloaded_at": result.DownloadedAt.Format(time.RFC3339Nano),
+		}, nil
 	case "send_react":
 		chat, err := types.ParseJID(cmd.ChatJID)
 		if err != nil {
@@ -485,7 +501,7 @@ func parseDaemonCommand(line []byte) (DaemonCommand, error) {
 		return DaemonCommand{}, errors.New("daemon command type is required")
 	}
 	switch cmd.Type {
-	case "health", "subscribe", "send_text", "mark_read", "send_react", "send_file", "group_rename", "group_photo", "refresh_groups", "shutdown":
+	case "health", "subscribe", "send_text", "mark_read", "send_react", "send_file", "download_media", "group_rename", "group_photo", "refresh_groups", "shutdown":
 		return cmd, nil
 	default:
 		return DaemonCommand{}, fmt.Errorf("unknown daemon command type %q", cmd.Type)
@@ -518,6 +534,13 @@ func validateDaemonCommand(cmd DaemonCommand) error {
 			if strings.TrimSpace(id) == "" {
 				return errors.New("mark_read msgIds cannot contain blanks")
 			}
+		}
+	case "download_media":
+		if strings.TrimSpace(cmd.ChatJID) == "" {
+			return errors.New("download_media requires chatJid")
+		}
+		if strings.TrimSpace(cmd.MsgID) == "" {
+			return errors.New("download_media requires msgId")
 		}
 	case "send_react":
 		if strings.TrimSpace(cmd.ChatJID) == "" {
