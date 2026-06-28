@@ -168,33 +168,25 @@ func (c *Client) RemoveEventHandler(id uint32) {
 	cli.RemoveEventHandler(id)
 }
 
-func (c *Client) SendText(ctx context.Context, to types.JID, text string) (types.MessageID, error) {
+func (c *Client) SendText(ctx context.Context, to types.JID, text string) (whatsmeow.SendResponse, error) {
 	c.mu.Lock()
 	cli := c.client
 	c.mu.Unlock()
 	if cli == nil || !cli.IsConnected() {
-		return "", fmt.Errorf("not connected")
+		return whatsmeow.SendResponse{}, fmt.Errorf("not connected")
 	}
 	msg := &waProto.Message{Conversation: &text}
-	resp, err := cli.SendMessage(ctx, to, msg)
-	if err != nil {
-		return "", err
-	}
-	return resp.ID, nil
+	return cli.SendMessage(ctx, to, msg)
 }
 
-func (c *Client) SendProtoMessage(ctx context.Context, to types.JID, msg *waProto.Message) (types.MessageID, error) {
+func (c *Client) SendProtoMessage(ctx context.Context, to types.JID, msg *waProto.Message) (whatsmeow.SendResponse, error) {
 	c.mu.Lock()
 	cli := c.client
 	c.mu.Unlock()
 	if cli == nil || !cli.IsConnected() {
-		return "", fmt.Errorf("not connected")
+		return whatsmeow.SendResponse{}, fmt.Errorf("not connected")
 	}
-	resp, err := cli.SendMessage(ctx, to, msg)
-	if err != nil {
-		return "", err
-	}
-	return resp.ID, nil
+	return cli.SendMessage(ctx, to, msg)
 }
 
 func (c *Client) Upload(ctx context.Context, data []byte, mediaType whatsmeow.MediaType) (whatsmeow.UploadResponse, error) {
@@ -223,19 +215,15 @@ func (c *Client) MarkRead(ctx context.Context, ids []types.MessageID, timestamp 
 	return err
 }
 
-func (c *Client) SendReaction(ctx context.Context, chat, sender types.JID, targetID types.MessageID, reaction string) (types.MessageID, error) {
+func (c *Client) SendReaction(ctx context.Context, chat, sender types.JID, targetID types.MessageID, reaction string) (whatsmeow.SendResponse, error) {
 	c.mu.Lock()
 	cli := c.client
 	c.mu.Unlock()
 	if cli == nil || !cli.IsConnected() {
-		return "", fmt.Errorf("not connected")
+		return whatsmeow.SendResponse{}, fmt.Errorf("not connected")
 	}
 	msg := cli.BuildReaction(chat, sender, targetID, reaction)
-	resp, err := cli.SendMessage(ctx, chat, msg)
-	if err != nil {
-		return "", err
-	}
-	return resp.ID, nil
+	return cli.SendMessage(ctx, chat, msg)
 }
 
 func (c *Client) DecryptReaction(ctx context.Context, reaction *events.Message) (*waProto.ReactionMessage, error) {

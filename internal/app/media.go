@@ -20,6 +20,16 @@ type mediaJob struct {
 	msgID   string
 }
 
+type MediaDownloadResult struct {
+	ChatJID      string
+	MsgID        string
+	Path         string
+	Bytes        int64
+	MediaType    string
+	MimeType     string
+	DownloadedAt time.Time
+}
+
 func (a *App) ResolveMediaOutputPath(info store.MediaDownloadInfo, requested string) (string, error) {
 	filename := mediaFilename(info)
 
@@ -110,6 +120,43 @@ func (a *App) runMediaWorkers(ctx context.Context, jobs <-chan mediaJob, workers
 	return stop, nil
 }
 
+func (a *App) DownloadMedia(ctx context.Context, chatJID, msgID, outputPath string) (MediaDownloadResult, error) {
+	info, err := a.db.GetMediaDownloadInfo(chatJID, msgID)
+	if err != nil {
+		return MediaDownloadResult{}, err
+	}
+	if strings.TrimSpace(info.MediaType) == "" || strings.TrimSpace(info.DirectPath) == "" || len(info.MediaKey) == 0 {
+		return MediaDownloadResult{}, fmt.Errorf("message has no downloadable media metadata (run `wacli sync` first)")
+	}
+
+	targetPath, err := a.ResolveMediaOutputPath(info, outputPath)
+	if err != nil {
+		return MediaDownloadResult{}, err
+	}
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0700); err != nil {
+		return MediaDownloadResult{}, err
+	}
+
+	bytes, err := a.wa.DownloadMediaToFile(ctx, info.DirectPath, info.FileEncSHA256, info.FileSHA256, info.MediaKey, info.FileLength, info.MediaType, "", targetPath)
+	if err != nil {
+		return MediaDownloadResult{}, err
+	}
+
+	now := time.Now().UTC()
+	if err := a.db.MarkMediaDownloaded(info.ChatJID, info.MsgID, targetPath, now); err != nil {
+		return MediaDownloadResult{}, err
+	}
+	return MediaDownloadResult{
+		ChatJID:      info.ChatJID,
+		MsgID:        info.MsgID,
+		Path:         targetPath,
+		Bytes:        bytes,
+		MediaType:    info.MediaType,
+		MimeType:     info.MimeType,
+		DownloadedAt: now,
+	}, nil
+}
+
 func (a *App) downloadMediaJob(ctx context.Context, job mediaJob) error {
 	info, err := a.db.GetMediaDownloadInfo(job.chatJID, job.msgID)
 	if err != nil {
@@ -124,19 +171,6 @@ func (a *App) downloadMediaJob(ctx context.Context, job mediaJob) error {
 	if strings.TrimSpace(info.MediaType) == "" || strings.TrimSpace(info.DirectPath) == "" || len(info.MediaKey) == 0 {
 		return nil
 	}
-
-	targetPath, err := a.ResolveMediaOutputPath(info, "")
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(targetPath), 0700); err != nil {
-		return err
-	}
-
-	if _, err := a.wa.DownloadMediaToFile(ctx, info.DirectPath, info.FileEncSHA256, info.FileSHA256, info.MediaKey, info.FileLength, info.MediaType, "", targetPath); err != nil {
-		return err
-	}
-
-	now := time.Now().UTC()
-	return a.db.MarkMediaDownloaded(info.ChatJID, info.MsgID, targetPath, now)
+	_, err = a.DownloadMedia(ctx, job.chatJID, job.msgID, "")
+	return err
 }

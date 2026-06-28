@@ -168,6 +168,123 @@ func TestRunDaemonHandlesSendTextInProcess(t *testing.T) {
 	if fake.lastTextTo.String() != "120363427307015739@g.us" || fake.lastTextMessage != "hi" {
 		t.Fatalf("sent text = (%s, %q)", fake.lastTextTo, fake.lastTextMessage)
 	}
+	msg, err := a.db.GetMessage("120363427307015739@g.us", "msgid")
+	if err != nil {
+		t.Fatalf("GetMessage outbound send: %v", err)
+	}
+	if !msg.FromMe || msg.Text != "hi" || msg.DisplayText != "hi" {
+		t.Fatalf("stored outbound message = %+v", msg)
+	}
+}
+
+func TestRunDaemonSendTextReportsPartialSuccessWhenPersistenceFails(t *testing.T) {
+	a := newTestAppWithFakeWA(t)
+	socketPath := shortSocketPath(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = a.RunDaemon(ctx, DaemonOptions{SocketPath: socketPath, QueueSize: 4}) }()
+	waitForUnixSocket(t, socketPath)
+
+	if err := a.db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	resp := sendDaemonTestCommand(t, socketPath, `{"type":"send_text","chatJid":"120363427307015739@g.us","message":"hi"}`)
+	if !resp.Success {
+		t.Fatalf("resp = %+v, want partial success", resp)
+	}
+	data := resp.Data.(map[string]any)
+	if data["message_id"] != "msgid" || data["persisted"] != false || data["persist_error"] == "" {
+		t.Fatalf("data = %+v, want message_id with persist error", data)
+	}
+}
+
+func TestRunDaemonHandlesSendFileInProcess(t *testing.T) {
+	a := newTestAppWithFakeWA(t)
+	fake := a.wa.(*fakeWA)
+	filePath := filepath.Join(t.TempDir(), "photo.jpg")
+	if err := os.WriteFile(filePath, []byte("fake image"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	socketPath := shortSocketPath(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = a.RunDaemon(ctx, DaemonOptions{SocketPath: socketPath, QueueSize: 4}) }()
+	waitForUnixSocket(t, socketPath)
+
+	resp := sendDaemonTestCommand(t, socketPath, fmt.Sprintf(`{"type":"send_file","chatJid":"120363427307015739@g.us","filePath":%q,"message":"caption"}`, filePath))
+	if !resp.Success {
+		t.Fatalf("resp = %+v", resp)
+	}
+	data := resp.Data.(map[string]any)
+	if data["message_id"] != "msgid" || data["persisted"] != true {
+		t.Fatalf("data = %+v", data)
+	}
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if got := fake.lastProtoTo.String(); got != "120363427307015739@g.us" {
+		t.Fatalf("proto to = %s", got)
+	}
+	if fake.lastProtoMessage.GetImageMessage().GetCaption() != "caption" {
+		t.Fatalf("image message = %+v", fake.lastProtoMessage.GetImageMessage())
+	}
+	msg, err := a.db.GetMessage("120363427307015739@g.us", "msgid")
+	if err != nil {
+		t.Fatalf("GetMessage outbound file: %v", err)
+	}
+	if !msg.FromMe || msg.MediaType != "image" || msg.DisplayText != "Sent image" {
+		t.Fatalf("stored outbound file = %+v", msg)
+	}
+}
+
+func TestRunDaemonHandlesDownloadMediaInProcess(t *testing.T) {
+	a := newTestAppWithFakeWA(t)
+	chat := "120363427307015739@g.us"
+	if err := a.db.UpsertChat(chat, "group", "Test", time.Date(2026, 6, 27, 20, 29, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.db.UpsertMessage(store.UpsertMessageParams{
+		ChatJID:       chat,
+		MsgID:         "media-msg",
+		Timestamp:     time.Date(2026, 6, 27, 20, 30, 0, 0, time.UTC),
+		MediaType:     "image",
+		MimeType:      "image/png",
+		DirectPath:    "/direct/path",
+		MediaKey:      []byte("media-key"),
+		FileSHA256:    []byte("file-sha"),
+		FileEncSHA256: []byte("enc-sha"),
+		FileLength:    4,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	outDir := t.TempDir()
+	socketPath := shortSocketPath(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = a.RunDaemon(ctx, DaemonOptions{SocketPath: socketPath, QueueSize: 4}) }()
+	waitForUnixSocket(t, socketPath)
+
+	resp := sendDaemonTestCommand(t, socketPath, fmt.Sprintf(`{"type":"download_media","chatJid":%q,"msgId":"media-msg","outputPath":%q}`, chat, outDir))
+	if !resp.Success {
+		t.Fatalf("resp = %+v", resp)
+	}
+	data := resp.Data.(map[string]any)
+	if data["downloaded"] != true || data["media_type"] != "image" || data["mime_type"] != "image/png" || data["bytes"] != float64(4) {
+		t.Fatalf("data = %+v", data)
+	}
+	path, ok := data["path"].(string)
+	if !ok || path == "" {
+		t.Fatalf("path = %#v", data["path"])
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("downloaded file: %v", err)
+	}
+	info, err := a.db.GetMediaDownloadInfo(chat, "media-msg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.LocalPath != path || info.DownloadedAt.IsZero() {
+		t.Fatalf("download info = %+v, path %s", info, path)
+	}
 }
 
 func TestRunDaemonHandlesMarkReadInProcess(t *testing.T) {

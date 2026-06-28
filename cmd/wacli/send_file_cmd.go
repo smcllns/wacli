@@ -53,13 +53,18 @@ func newSendFileCmd(flags *rootFlags) *cobra.Command {
 
 			if flags.asJSON {
 				return out.WriteJSON(os.Stdout, map[string]any{
-					"sent": true,
-					"to":   toJID.String(),
-					"id":   msgID,
-					"file": meta,
+					"sent":          true,
+					"to":            toJID.String(),
+					"id":            msgID,
+					"file":          meta,
+					"persisted":     meta["persisted"] == "true",
+					"persist_error": meta["persist_error"],
 				})
 			}
 			fmt.Fprintf(os.Stdout, "Sent %s to %s (id %s)\n", meta["name"], toJID.String(), msgID)
+			if meta["persist_error"] != "" {
+				fmt.Fprintf(os.Stderr, "Warning: message sent but not persisted locally: %s\n", meta["persist_error"])
+			}
 			return nil
 		},
 	}

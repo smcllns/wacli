@@ -219,20 +219,20 @@ func (f *fakeWA) JoinGroupWithLink(ctx context.Context, code string) (types.JID,
 
 func (f *fakeWA) LeaveGroup(ctx context.Context, group types.JID) error { return nil }
 
-func (f *fakeWA) SendText(ctx context.Context, to types.JID, text string) (types.MessageID, error) {
+func (f *fakeWA) SendText(ctx context.Context, to types.JID, text string) (whatsmeow.SendResponse, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.lastTextTo = to
 	f.lastTextMessage = text
-	return types.MessageID("msgid"), nil
+	return whatsmeow.SendResponse{ID: types.MessageID("msgid"), Timestamp: time.Date(2026, 6, 27, 19, 30, 0, 0, time.UTC)}, nil
 }
 
-func (f *fakeWA) SendProtoMessage(ctx context.Context, to types.JID, msg *waProto.Message) (types.MessageID, error) {
+func (f *fakeWA) SendProtoMessage(ctx context.Context, to types.JID, msg *waProto.Message) (whatsmeow.SendResponse, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.lastProtoTo = to
 	f.lastProtoMessage = msg
-	return types.MessageID("msgid"), nil
+	return whatsmeow.SendResponse{ID: types.MessageID("msgid"), Timestamp: time.Date(2026, 6, 27, 19, 30, 0, 0, time.UTC)}, nil
 }
 
 func (f *fakeWA) Upload(ctx context.Context, data []byte, mediaType whatsmeow.MediaType) (whatsmeow.UploadResponse, error) {
@@ -249,8 +249,8 @@ func (f *fakeWA) MarkRead(ctx context.Context, ids []types.MessageID, timestamp 
 	return nil
 }
 
-func (f *fakeWA) SendReaction(ctx context.Context, chat, sender types.JID, targetID types.MessageID, reaction string) (types.MessageID, error) {
-	return "react-id", nil
+func (f *fakeWA) SendReaction(ctx context.Context, chat, sender types.JID, targetID types.MessageID, reaction string) (whatsmeow.SendResponse, error) {
+	return whatsmeow.SendResponse{ID: types.MessageID("react-id"), Timestamp: time.Date(2026, 6, 27, 19, 30, 0, 0, time.UTC)}, nil
 }
 
 func (f *fakeWA) DecryptReaction(ctx context.Context, reaction *events.Message) (*waProto.ReactionMessage, error) {

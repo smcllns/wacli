@@ -54,25 +54,30 @@ func newSendReactCmd(flags *rootFlags) *cobra.Command {
 				}
 			}
 
-			msgID, err := a.WA().SendReaction(ctx, toJID, senderJID, types.MessageID(id), reaction)
+			resp, err := a.WA().SendReaction(ctx, toJID, senderJID, types.MessageID(id), reaction)
 			if err != nil {
 				return err
 			}
+			persistErr := a.StoreConfirmedOutboundReaction(ctx, toJID, resp, types.MessageID(id), reaction)
+			persisted, persistError := persistStatus(persistErr)
 
 			if flags.asJSON {
 				return out.WriteJSON(os.Stdout, map[string]any{
-					"sent":     true,
-					"to":       toJID.String(),
-					"id":       msgID,
-					"target":   id,
-					"reaction": reaction,
+					"sent":          true,
+					"to":            toJID.String(),
+					"id":            resp.ID,
+					"target":        id,
+					"reaction":      reaction,
+					"persisted":     persisted,
+					"persist_error": persistError,
 				})
 			}
 			if reaction == "" {
-				fmt.Fprintf(os.Stdout, "Removed reaction from %s in %s (id %s)\n", id, toJID.String(), msgID)
+				fmt.Fprintf(os.Stdout, "Removed reaction from %s in %s (id %s)\n", id, toJID.String(), resp.ID)
 			} else {
-				fmt.Fprintf(os.Stdout, "Reacted %s to %s in %s (id %s)\n", reaction, id, toJID.String(), msgID)
+				fmt.Fprintf(os.Stdout, "Reacted %s to %s in %s (id %s)\n", reaction, id, toJID.String(), resp.ID)
 			}
+			warnPersistFailure(persistErr)
 			return nil
 		},
 	}

@@ -81,6 +81,17 @@ func ParseHistoryMessage(chatJID string, hist *waProto.WebMessageInfo) ParsedMes
 	return pm
 }
 
+func ParseOutgoingMessage(chat types.JID, id types.MessageID, timestamp time.Time, msg *waProto.Message) ParsedMessage {
+	pm := ParsedMessage{
+		Chat:      chat,
+		ID:        string(id),
+		Timestamp: timestamp.UTC(),
+		FromMe:    true,
+	}
+	extractWAProto(msg, &pm)
+	return pm
+}
+
 func extractWAProto(m *waProto.Message, pm *ParsedMessage) {
 	if m == nil || pm == nil {
 		return
