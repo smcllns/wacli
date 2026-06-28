@@ -168,6 +168,13 @@ func TestRunDaemonHandlesSendTextInProcess(t *testing.T) {
 	if fake.lastTextTo.String() != "120363427307015739@g.us" || fake.lastTextMessage != "hi" {
 		t.Fatalf("sent text = (%s, %q)", fake.lastTextTo, fake.lastTextMessage)
 	}
+	msg, err := a.db.GetMessage("120363427307015739@g.us", "msgid")
+	if err != nil {
+		t.Fatalf("GetMessage outbound send: %v", err)
+	}
+	if !msg.FromMe || msg.Text != "hi" || msg.DisplayText != "hi" {
+		t.Fatalf("stored outbound message = %+v", msg)
+	}
 }
 
 func TestRunDaemonHandlesMarkReadInProcess(t *testing.T) {

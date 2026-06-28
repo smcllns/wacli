@@ -4,11 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/steipete/wacli/internal/out"
-	"github.com/steipete/wacli/internal/store"
 	"github.com/steipete/wacli/internal/wa"
 )
 
@@ -56,35 +54,22 @@ func newSendTextCmd(flags *rootFlags) *cobra.Command {
 				return err
 			}
 
-			msgID, err := a.WA().SendText(ctx, toJID, message)
+			resp, err := a.WA().SendText(ctx, toJID, message)
 			if err != nil {
 				return err
 			}
-
-			now := time.Now().UTC()
-			chat := toJID
-			chatName := a.WA().ResolveChatName(ctx, chat, "")
-			kind := chatKindFromJID(chat)
-			_ = a.DB().UpsertChat(chat.String(), kind, chatName, now)
-			_ = a.DB().UpsertMessage(store.UpsertMessageParams{
-				ChatJID:    chat.String(),
-				ChatName:   chatName,
-				MsgID:      string(msgID),
-				SenderJID:  "",
-				SenderName: "me",
-				Timestamp:  now,
-				FromMe:     true,
-				Text:       message,
-			})
+			if err := a.StoreConfirmedOutboundText(ctx, toJID, resp, message); err != nil {
+				return err
+			}
 
 			if flags.asJSON {
 				return out.WriteJSON(os.Stdout, map[string]any{
 					"sent": true,
-					"to":   chat.String(),
-					"id":   msgID,
+					"to":   toJID.String(),
+					"id":   resp.ID,
 				})
 			}
-			fmt.Fprintf(os.Stdout, "Sent to %s (id %s)\n", chat.String(), msgID)
+			fmt.Fprintf(os.Stdout, "Sent to %s (id %s)\n", toJID.String(), resp.ID)
 			return nil
 		},
 	}

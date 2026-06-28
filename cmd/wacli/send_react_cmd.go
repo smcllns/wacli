@@ -54,8 +54,11 @@ func newSendReactCmd(flags *rootFlags) *cobra.Command {
 				}
 			}
 
-			msgID, err := a.WA().SendReaction(ctx, toJID, senderJID, types.MessageID(id), reaction)
+			resp, err := a.WA().SendReaction(ctx, toJID, senderJID, types.MessageID(id), reaction)
 			if err != nil {
+				return err
+			}
+			if err := a.StoreConfirmedOutboundReaction(ctx, toJID, resp, types.MessageID(id), reaction); err != nil {
 				return err
 			}
 
@@ -63,15 +66,15 @@ func newSendReactCmd(flags *rootFlags) *cobra.Command {
 				return out.WriteJSON(os.Stdout, map[string]any{
 					"sent":     true,
 					"to":       toJID.String(),
-					"id":       msgID,
+					"id":       resp.ID,
 					"target":   id,
 					"reaction": reaction,
 				})
 			}
 			if reaction == "" {
-				fmt.Fprintf(os.Stdout, "Removed reaction from %s in %s (id %s)\n", id, toJID.String(), msgID)
+				fmt.Fprintf(os.Stdout, "Removed reaction from %s in %s (id %s)\n", id, toJID.String(), resp.ID)
 			} else {
-				fmt.Fprintf(os.Stdout, "Reacted %s to %s in %s (id %s)\n", reaction, id, toJID.String(), msgID)
+				fmt.Fprintf(os.Stdout, "Reacted %s to %s in %s (id %s)\n", reaction, id, toJID.String(), resp.ID)
 			}
 			return nil
 		},

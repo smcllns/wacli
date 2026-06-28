@@ -7,11 +7,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/steipete/wacli/internal/app"
-	"github.com/steipete/wacli/internal/store"
 	"github.com/steipete/wacli/internal/wa"
+	"go.mau.fi/whatsmeow"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
 	"go.mau.fi/whatsmeow/types"
 	"google.golang.org/protobuf/proto"
@@ -19,7 +18,7 @@ import (
 
 func sendFile(ctx context.Context, a interface {
 	WA() app.WAClient
-	DB() *store.DB
+	StoreConfirmedOutboundMessage(context.Context, types.JID, whatsmeow.SendResponse, *waProto.Message) error
 }, to types.JID, filePath, filename, caption, mimeOverride string) (string, map[string]string, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
@@ -62,7 +61,6 @@ func sendFile(ctx context.Context, a interface {
 		return "", nil, err
 	}
 
-	now := time.Now().UTC()
 	msg := &waProto.Message{}
 
 	switch mediaType {
@@ -114,35 +112,15 @@ func sendFile(ctx context.Context, a interface {
 		}
 	}
 
-	id, err := a.WA().SendProtoMessage(ctx, to, msg)
+	resp, err := a.WA().SendProtoMessage(ctx, to, msg)
 	if err != nil {
 		return "", nil, err
 	}
+	if err := a.StoreConfirmedOutboundMessage(ctx, to, resp, msg); err != nil {
+		return "", nil, err
+	}
 
-	chatName := a.WA().ResolveChatName(ctx, to, "")
-	kind := chatKindFromJID(to)
-	_ = a.DB().UpsertChat(to.String(), kind, chatName, now)
-	_ = a.DB().UpsertMessage(store.UpsertMessageParams{
-		ChatJID:       to.String(),
-		ChatName:      chatName,
-		MsgID:         id,
-		SenderJID:     "",
-		SenderName:    "me",
-		Timestamp:     now,
-		FromMe:        true,
-		Text:          caption,
-		MediaType:     mediaType,
-		MediaCaption:  caption,
-		Filename:      name,
-		MimeType:      mimeType,
-		DirectPath:    up.DirectPath,
-		MediaKey:      up.MediaKey,
-		FileSHA256:    up.FileSHA256,
-		FileEncSHA256: up.FileEncSHA256,
-		FileLength:    up.FileLength,
-	})
-
-	return id, map[string]string{
+	return string(resp.ID), map[string]string{
 		"name":      name,
 		"mime_type": mimeType,
 		"media":     mediaType,

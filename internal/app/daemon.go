@@ -37,14 +37,14 @@ type DaemonResponse struct {
 }
 
 type DaemonEvent struct {
-	Type        string `json:"type"`
-	RowID       int64  `json:"rowid"`
-	ChatJID     string `json:"chatJid"`
-	MsgID       string `json:"msgId"`
-	SenderJID   string `json:"senderJid,omitempty"`
-	Timestamp   string `json:"timestamp"`
-	FromMe      bool   `json:"fromMe"`
-	Text        string `json:"text,omitempty"`
+	Type         string `json:"type"`
+	RowID        int64  `json:"rowid"`
+	ChatJID      string `json:"chatJid"`
+	MsgID        string `json:"msgId"`
+	SenderJID    string `json:"senderJid,omitempty"`
+	Timestamp    string `json:"timestamp"`
+	FromMe       bool   `json:"fromMe"`
+	Text         string `json:"text,omitempty"`
 	DisplayText  string `json:"displayText,omitempty"`
 	MediaType    string `json:"mediaType,omitempty"`
 	EditTargetID string `json:"editTargetMsgId,omitempty"`
@@ -140,14 +140,14 @@ func (a *App) RunDaemon(ctx context.Context, opts DaemonOptions) error {
 			return
 		}
 		subscribers.broadcast(DaemonEvent{
-			Type:        "message",
-			RowID:       rowid,
-			ChatJID:     pm.Chat.String(),
-			MsgID:       pm.ID,
-			SenderJID:   pm.SenderJID,
-			Timestamp:   pm.Timestamp.UTC().Format(time.RFC3339Nano),
-			FromMe:      pm.FromMe,
-			Text:        pm.Text,
+			Type:         "message",
+			RowID:        rowid,
+			ChatJID:      pm.Chat.String(),
+			MsgID:        pm.ID,
+			SenderJID:    pm.SenderJID,
+			Timestamp:    pm.Timestamp.UTC().Format(time.RFC3339Nano),
+			FromMe:       pm.FromMe,
+			Text:         pm.Text,
 			DisplayText:  displayText,
 			MediaType:    daemonMediaType(pm.Media),
 			EditTargetID: pm.EditTargetID,
@@ -329,17 +329,23 @@ func (a *App) handleDaemonWriteCommand(ctx context.Context, cmd DaemonCommand) (
 				replyToSenderJID = parsed.ToNonAD().String()
 			}
 			msg := quotedTextMessage(cmd.Message, replyToMsgID, replyToSenderJID, cmd.ReplyToText)
-			id, err := a.wa.SendProtoMessage(ctx, jid, msg)
+			resp, err := a.wa.SendProtoMessage(ctx, jid, msg)
 			if err != nil {
 				return nil, err
 			}
-			return map[string]any{"message_id": id}, nil
+			if err := a.StoreConfirmedOutboundMessage(ctx, jid, resp, msg); err != nil {
+				return nil, err
+			}
+			return map[string]any{"message_id": resp.ID}, nil
 		}
-		id, err := a.wa.SendText(ctx, jid, cmd.Message)
+		resp, err := a.wa.SendText(ctx, jid, cmd.Message)
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"message_id": id}, nil
+		if err := a.StoreConfirmedOutboundText(ctx, jid, resp, cmd.Message); err != nil {
+			return nil, err
+		}
+		return map[string]any{"message_id": resp.ID}, nil
 	case "mark_read":
 		chat, err := types.ParseJID(cmd.ChatJID)
 		if err != nil {
@@ -394,11 +400,14 @@ func (a *App) handleDaemonWriteCommand(ctx context.Context, cmd DaemonCommand) (
 		if err != nil {
 			return nil, err
 		}
-		id, err := a.wa.SendReaction(ctx, chat, sender, types.MessageID(cmd.MsgID), cmd.Reaction)
+		resp, err := a.wa.SendReaction(ctx, chat, sender, types.MessageID(cmd.MsgID), cmd.Reaction)
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"message_id": id}, nil
+		if err := a.StoreConfirmedOutboundReaction(ctx, chat, resp, types.MessageID(cmd.MsgID), cmd.Reaction); err != nil {
+			return nil, err
+		}
+		return map[string]any{"message_id": resp.ID}, nil
 	case "group_rename":
 		jid, err := types.ParseJID(cmd.ChatJID)
 		if err != nil {
