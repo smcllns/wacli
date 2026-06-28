@@ -177,6 +177,27 @@ func TestRunDaemonHandlesSendTextInProcess(t *testing.T) {
 	}
 }
 
+func TestRunDaemonSendTextReportsPartialSuccessWhenPersistenceFails(t *testing.T) {
+	a := newTestAppWithFakeWA(t)
+	socketPath := shortSocketPath(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = a.RunDaemon(ctx, DaemonOptions{SocketPath: socketPath, QueueSize: 4}) }()
+	waitForUnixSocket(t, socketPath)
+
+	if err := a.db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	resp := sendDaemonTestCommand(t, socketPath, `{"type":"send_text","chatJid":"120363427307015739@g.us","message":"hi"}`)
+	if !resp.Success {
+		t.Fatalf("resp = %+v, want partial success", resp)
+	}
+	data := resp.Data.(map[string]any)
+	if data["message_id"] != "msgid" || data["persisted"] != false || data["persist_error"] == "" {
+		t.Fatalf("data = %+v, want message_id with persist error", data)
+	}
+}
+
 func TestRunDaemonHandlesMarkReadInProcess(t *testing.T) {
 	a := newTestAppWithFakeWA(t)
 	fake := a.wa.(*fakeWA)

@@ -58,18 +58,20 @@ func newSendTextCmd(flags *rootFlags) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := a.StoreConfirmedOutboundText(ctx, toJID, resp, message); err != nil {
-				return err
-			}
+			persistErr := a.StoreConfirmedOutboundText(ctx, toJID, resp, message)
+			persisted, persistError := persistStatus(persistErr)
 
 			if flags.asJSON {
 				return out.WriteJSON(os.Stdout, map[string]any{
-					"sent": true,
-					"to":   toJID.String(),
-					"id":   resp.ID,
+					"sent":          true,
+					"to":            toJID.String(),
+					"id":            resp.ID,
+					"persisted":     persisted,
+					"persist_error": persistError,
 				})
 			}
 			fmt.Fprintf(os.Stdout, "Sent to %s (id %s)\n", toJID.String(), resp.ID)
+			warnPersistFailure(persistErr)
 			return nil
 		},
 	}

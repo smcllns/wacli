@@ -58,17 +58,18 @@ func newSendReactCmd(flags *rootFlags) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := a.StoreConfirmedOutboundReaction(ctx, toJID, resp, types.MessageID(id), reaction); err != nil {
-				return err
-			}
+			persistErr := a.StoreConfirmedOutboundReaction(ctx, toJID, resp, types.MessageID(id), reaction)
+			persisted, persistError := persistStatus(persistErr)
 
 			if flags.asJSON {
 				return out.WriteJSON(os.Stdout, map[string]any{
-					"sent":     true,
-					"to":       toJID.String(),
-					"id":       resp.ID,
-					"target":   id,
-					"reaction": reaction,
+					"sent":          true,
+					"to":            toJID.String(),
+					"id":            resp.ID,
+					"target":        id,
+					"reaction":      reaction,
+					"persisted":     persisted,
+					"persist_error": persistError,
 				})
 			}
 			if reaction == "" {
@@ -76,6 +77,7 @@ func newSendReactCmd(flags *rootFlags) *cobra.Command {
 			} else {
 				fmt.Fprintf(os.Stdout, "Reacted %s to %s in %s (id %s)\n", reaction, id, toJID.String(), resp.ID)
 			}
+			warnPersistFailure(persistErr)
 			return nil
 		},
 	}

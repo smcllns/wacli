@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"mime"
 	"net/http"
 	"os"
@@ -116,14 +117,15 @@ func sendFile(ctx context.Context, a interface {
 	if err != nil {
 		return "", nil, err
 	}
-	if err := a.StoreConfirmedOutboundMessage(ctx, to, resp, msg); err != nil {
-		return "", nil, err
-	}
+	persistErr := a.StoreConfirmedOutboundMessage(ctx, to, resp, msg)
+	persisted, persistError := persistStatus(persistErr)
 
 	return string(resp.ID), map[string]string{
-		"name":      name,
-		"mime_type": mimeType,
-		"media":     mediaType,
+		"name":          name,
+		"mime_type":     mimeType,
+		"media":         mediaType,
+		"persisted":     fmt.Sprintf("%t", persisted),
+		"persist_error": persistError,
 	}, nil
 }
 

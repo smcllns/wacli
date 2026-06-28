@@ -333,19 +333,15 @@ func (a *App) handleDaemonWriteCommand(ctx context.Context, cmd DaemonCommand) (
 			if err != nil {
 				return nil, err
 			}
-			if err := a.StoreConfirmedOutboundMessage(ctx, jid, resp, msg); err != nil {
-				return nil, err
-			}
-			return map[string]any{"message_id": resp.ID}, nil
+			persistErr := a.StoreConfirmedOutboundMessage(ctx, jid, resp, msg)
+			return daemonSendData(resp.ID, persistErr), nil
 		}
 		resp, err := a.wa.SendText(ctx, jid, cmd.Message)
 		if err != nil {
 			return nil, err
 		}
-		if err := a.StoreConfirmedOutboundText(ctx, jid, resp, cmd.Message); err != nil {
-			return nil, err
-		}
-		return map[string]any{"message_id": resp.ID}, nil
+		persistErr := a.StoreConfirmedOutboundText(ctx, jid, resp, cmd.Message)
+		return daemonSendData(resp.ID, persistErr), nil
 	case "mark_read":
 		chat, err := types.ParseJID(cmd.ChatJID)
 		if err != nil {
@@ -404,10 +400,8 @@ func (a *App) handleDaemonWriteCommand(ctx context.Context, cmd DaemonCommand) (
 		if err != nil {
 			return nil, err
 		}
-		if err := a.StoreConfirmedOutboundReaction(ctx, chat, resp, types.MessageID(cmd.MsgID), cmd.Reaction); err != nil {
-			return nil, err
-		}
-		return map[string]any{"message_id": resp.ID}, nil
+		persistErr := a.StoreConfirmedOutboundReaction(ctx, chat, resp, types.MessageID(cmd.MsgID), cmd.Reaction)
+		return daemonSendData(resp.ID, persistErr), nil
 	case "group_rename":
 		jid, err := types.ParseJID(cmd.ChatJID)
 		if err != nil {
@@ -431,6 +425,14 @@ func (a *App) handleDaemonWriteCommand(ctx context.Context, cmd DaemonCommand) (
 	default:
 		return nil, fmt.Errorf("daemon command %q is not implemented", cmd.Type)
 	}
+}
+
+func daemonSendData(id types.MessageID, persistErr error) map[string]any {
+	data := map[string]any{"message_id": id, "persisted": persistErr == nil}
+	if persistErr != nil {
+		data["persist_error"] = persistErr.Error()
+	}
+	return data
 }
 
 func quotedTextMessage(text, replyToMsgID, replyToSenderJID, replyToText string) *waProto.Message {
