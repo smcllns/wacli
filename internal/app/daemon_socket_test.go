@@ -198,6 +198,44 @@ func TestRunDaemonSendTextReportsPartialSuccessWhenPersistenceFails(t *testing.T
 	}
 }
 
+func TestRunDaemonHandlesSendFileInProcess(t *testing.T) {
+	a := newTestAppWithFakeWA(t)
+	fake := a.wa.(*fakeWA)
+	filePath := filepath.Join(t.TempDir(), "photo.jpg")
+	if err := os.WriteFile(filePath, []byte("fake image"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	socketPath := shortSocketPath(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = a.RunDaemon(ctx, DaemonOptions{SocketPath: socketPath, QueueSize: 4}) }()
+	waitForUnixSocket(t, socketPath)
+
+	resp := sendDaemonTestCommand(t, socketPath, fmt.Sprintf(`{"type":"send_file","chatJid":"120363427307015739@g.us","filePath":%q,"message":"caption"}`, filePath))
+	if !resp.Success {
+		t.Fatalf("resp = %+v", resp)
+	}
+	data := resp.Data.(map[string]any)
+	if data["message_id"] != "msgid" || data["persisted"] != true {
+		t.Fatalf("data = %+v", data)
+	}
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if got := fake.lastProtoTo.String(); got != "120363427307015739@g.us" {
+		t.Fatalf("proto to = %s", got)
+	}
+	if fake.lastProtoMessage.GetImageMessage().GetCaption() != "caption" {
+		t.Fatalf("image message = %+v", fake.lastProtoMessage.GetImageMessage())
+	}
+	msg, err := a.db.GetMessage("120363427307015739@g.us", "msgid")
+	if err != nil {
+		t.Fatalf("GetMessage outbound file: %v", err)
+	}
+	if !msg.FromMe || msg.MediaType != "image" || msg.DisplayText != "Sent image" {
+		t.Fatalf("stored outbound file = %+v", msg)
+	}
+}
+
 func TestRunDaemonHandlesMarkReadInProcess(t *testing.T) {
 	a := newTestAppWithFakeWA(t)
 	fake := a.wa.(*fakeWA)

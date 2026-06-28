@@ -2,131 +2,19 @@ package main
 
 import (
 	"context"
-	"fmt"
-	"mime"
-	"net/http"
-	"os"
-	"path/filepath"
-	"strings"
 
 	"github.com/steipete/wacli/internal/app"
-	"github.com/steipete/wacli/internal/wa"
-	"go.mau.fi/whatsmeow"
-	waProto "go.mau.fi/whatsmeow/binary/proto"
 	"go.mau.fi/whatsmeow/types"
-	"google.golang.org/protobuf/proto"
 )
 
 func sendFile(ctx context.Context, a interface {
-	WA() app.WAClient
-	StoreConfirmedOutboundMessage(context.Context, types.JID, whatsmeow.SendResponse, *waProto.Message) error
+	SendFile(context.Context, types.JID, string, string, string, string) (app.SendFileResult, error)
 }, to types.JID, filePath, filename, caption, mimeOverride string) (string, map[string]string, error) {
-	data, err := os.ReadFile(filePath)
+	result, err := a.SendFile(ctx, to, filePath, filename, caption, mimeOverride)
 	if err != nil {
 		return "", nil, err
 	}
-
-	name := strings.TrimSpace(filename)
-	if name == "" {
-		name = filepath.Base(filePath)
-	}
-	mimeType := strings.TrimSpace(mimeOverride)
-	if mimeType == "" {
-		// Use filePath for MIME detection, not the display name override
-		mimeType = mime.TypeByExtension(strings.ToLower(filepath.Ext(filePath)))
-	}
-	if mimeType == "" {
-		sniff := data
-		if len(sniff) > 512 {
-			sniff = sniff[:512]
-		}
-		mimeType = http.DetectContentType(sniff)
-	}
-
-	mediaType := "document"
-	uploadType, _ := wa.MediaTypeFromString("document")
-	switch {
-	case strings.HasPrefix(mimeType, "image/"):
-		mediaType = "image"
-		uploadType, _ = wa.MediaTypeFromString("image")
-	case strings.HasPrefix(mimeType, "video/"):
-		mediaType = "video"
-		uploadType, _ = wa.MediaTypeFromString("video")
-	case strings.HasPrefix(mimeType, "audio/"):
-		mediaType = "audio"
-		uploadType, _ = wa.MediaTypeFromString("audio")
-	}
-
-	up, err := a.WA().Upload(ctx, data, uploadType)
-	if err != nil {
-		return "", nil, err
-	}
-
-	msg := &waProto.Message{}
-
-	switch mediaType {
-	case "image":
-		msg.ImageMessage = &waProto.ImageMessage{
-			URL:           proto.String(up.URL),
-			DirectPath:    proto.String(up.DirectPath),
-			MediaKey:      up.MediaKey,
-			FileEncSHA256: up.FileEncSHA256,
-			FileSHA256:    up.FileSHA256,
-			FileLength:    proto.Uint64(up.FileLength),
-			Mimetype:      proto.String(mimeType),
-			Caption:       proto.String(caption),
-		}
-	case "video":
-		msg.VideoMessage = &waProto.VideoMessage{
-			URL:           proto.String(up.URL),
-			DirectPath:    proto.String(up.DirectPath),
-			MediaKey:      up.MediaKey,
-			FileEncSHA256: up.FileEncSHA256,
-			FileSHA256:    up.FileSHA256,
-			FileLength:    proto.Uint64(up.FileLength),
-			Mimetype:      proto.String(mimeType),
-			Caption:       proto.String(caption),
-		}
-	case "audio":
-		msg.AudioMessage = &waProto.AudioMessage{
-			URL:           proto.String(up.URL),
-			DirectPath:    proto.String(up.DirectPath),
-			MediaKey:      up.MediaKey,
-			FileEncSHA256: up.FileEncSHA256,
-			FileSHA256:    up.FileSHA256,
-			FileLength:    proto.Uint64(up.FileLength),
-			Mimetype:      proto.String(mimeType),
-			PTT:           proto.Bool(false),
-		}
-	default:
-		msg.DocumentMessage = &waProto.DocumentMessage{
-			URL:           proto.String(up.URL),
-			DirectPath:    proto.String(up.DirectPath),
-			MediaKey:      up.MediaKey,
-			FileEncSHA256: up.FileEncSHA256,
-			FileSHA256:    up.FileSHA256,
-			FileLength:    proto.Uint64(up.FileLength),
-			Mimetype:      proto.String(mimeType),
-			FileName:      proto.String(name),
-			Caption:       proto.String(caption),
-			Title:         proto.String(name),
-		}
-	}
-
-	resp, err := a.WA().SendProtoMessage(ctx, to, msg)
-	if err != nil {
-		return "", nil, err
-	}
-	persistErr := a.StoreConfirmedOutboundMessage(ctx, to, resp, msg)
-	persisted, persistError := persistStatus(persistErr)
-
-	return string(resp.ID), map[string]string{
-		"name":          name,
-		"mime_type":     mimeType,
-		"media":         mediaType,
-		"persisted":     fmt.Sprintf("%t", persisted),
-		"persist_error": persistError,
-	}, nil
+	return result.MessageID, result.Meta, nil
 }
 
 func chatKindFromJID(j types.JID) string {

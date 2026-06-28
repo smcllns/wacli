@@ -270,7 +270,7 @@ func (a *App) handleDaemonConn(ctx context.Context, conn net.Conn, queue *daemon
 				"queueDepth":      len(queue.slots),
 				"queueMaxDepth":   cap(queue.slots),
 				"subscriberCount": subscribers.count(),
-				"capabilities":    []string{"send_text", "send_react", "mark_read", "quoted_send_text"},
+				"capabilities":    []string{"send_text", "send_file", "send_react", "mark_read", "quoted_send_text"},
 				"ts":              time.Now().UTC().Format(time.RFC3339Nano),
 			}})
 			continue
@@ -387,6 +387,21 @@ func (a *App) handleDaemonWriteCommand(ctx context.Context, cmd DaemonCommand) (
 			return nil, err
 		}
 		return map[string]any{"read": true, "count": len(ids)}, nil
+	case "send_file":
+		jid, err := types.ParseJID(cmd.ChatJID)
+		if err != nil {
+			return nil, err
+		}
+		result, err := a.SendFile(ctx, jid, cmd.FilePath, cmd.Name, cmd.Message, "")
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{
+			"message_id":    result.MessageID,
+			"file":          result.Meta,
+			"persisted":     result.Persisted,
+			"persist_error": result.PersistError,
+		}, nil
 	case "send_react":
 		chat, err := types.ParseJID(cmd.ChatJID)
 		if err != nil {
