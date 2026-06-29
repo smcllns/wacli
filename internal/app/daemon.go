@@ -271,7 +271,7 @@ func (a *App) handleDaemonConn(ctx context.Context, conn net.Conn, queue *daemon
 				"queueDepth":      len(queue.slots),
 				"queueMaxDepth":   cap(queue.slots),
 				"subscriberCount": subscribers.count(),
-				"capabilities":    []string{"send_text", "send_file", "download_media", "send_react", "mark_read", "quoted_send_text"},
+				"capabilities":    []string{"send_text", "send_file", "download_media", "send_react", "send_edit", "mark_read", "quoted_send_text"},
 				"ts":              time.Now().UTC().Format(time.RFC3339Nano),
 			}})
 			continue
@@ -343,6 +343,16 @@ func (a *App) handleDaemonWriteCommand(ctx context.Context, cmd DaemonCommand) (
 		}
 		persistErr := a.StoreConfirmedOutboundText(ctx, jid, resp, cmd.Message)
 		return daemonSendData(resp.ID, persistErr), nil
+	case "send_edit":
+		jid, err := types.ParseJID(cmd.ChatJID)
+		if err != nil {
+			return nil, err
+		}
+		resp, err := a.wa.SendEdit(ctx, jid, types.MessageID(strings.TrimSpace(cmd.MsgID)), cmd.Message)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"message_id": resp.ID, "sent": true, "target_id": strings.TrimSpace(cmd.MsgID)}, nil
 	case "mark_read":
 		chat, err := types.ParseJID(cmd.ChatJID)
 		if err != nil {
@@ -501,7 +511,7 @@ func parseDaemonCommand(line []byte) (DaemonCommand, error) {
 		return DaemonCommand{}, errors.New("daemon command type is required")
 	}
 	switch cmd.Type {
-	case "health", "subscribe", "send_text", "mark_read", "send_react", "send_file", "download_media", "group_rename", "group_photo", "refresh_groups", "shutdown":
+	case "health", "subscribe", "send_text", "send_edit", "mark_read", "send_react", "send_file", "download_media", "group_rename", "group_photo", "refresh_groups", "shutdown":
 		return cmd, nil
 	default:
 		return DaemonCommand{}, fmt.Errorf("unknown daemon command type %q", cmd.Type)
@@ -522,6 +532,16 @@ func validateDaemonCommand(cmd DaemonCommand) error {
 		}
 		if strings.TrimSpace(cmd.ReplyToMsgID) != "" && daemonCommandChatIsGroup(cmd.ChatJID) && strings.TrimSpace(cmd.ReplyToSenderJID) == "" {
 			return errors.New("send_text quoted replies require replyToSenderJid for group chats")
+		}
+	case "send_edit":
+		if strings.TrimSpace(cmd.ChatJID) == "" {
+			return errors.New("send_edit requires chatJid")
+		}
+		if strings.TrimSpace(cmd.MsgID) == "" {
+			return errors.New("send_edit requires msgId")
+		}
+		if strings.TrimSpace(cmd.Message) == "" {
+			return errors.New("send_edit requires message")
 		}
 	case "mark_read":
 		if strings.TrimSpace(cmd.ChatJID) == "" {

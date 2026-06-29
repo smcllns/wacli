@@ -53,8 +53,8 @@ func TestRunDaemonRespondsToHealth(t *testing.T) {
 	if !ok {
 		t.Fatalf("capabilities = %T, want JSON array", data["capabilities"])
 	}
-	if !containsCapability(caps, "mark_read") || !containsCapability(caps, "quoted_send_text") {
-		t.Fatalf("capabilities = %v, want mark_read and quoted_send_text", caps)
+	if !containsCapability(caps, "mark_read") || !containsCapability(caps, "quoted_send_text") || !containsCapability(caps, "send_edit") {
+		t.Fatalf("capabilities = %v, want mark_read, quoted_send_text, and send_edit", caps)
 	}
 
 	cancel()
@@ -195,6 +195,34 @@ func TestRunDaemonSendTextReportsPartialSuccessWhenPersistenceFails(t *testing.T
 	data := resp.Data.(map[string]any)
 	if data["message_id"] != "msgid" || data["persisted"] != false || data["persist_error"] == "" {
 		t.Fatalf("data = %+v, want message_id with persist error", data)
+	}
+}
+
+func TestRunDaemonHandlesSendEditInProcess(t *testing.T) {
+	a := newTestAppWithFakeWA(t)
+	fake := a.wa.(*fakeWA)
+	socketPath := shortSocketPath(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = a.RunDaemon(ctx, DaemonOptions{SocketPath: socketPath, QueueSize: 4}) }()
+	waitForUnixSocket(t, socketPath)
+
+	resp := sendDaemonTestCommand(t, socketPath, `{"type":"send_edit","chatJid":"120363427307015739@g.us","msgId":"original-id","message":"after"}`)
+	if !resp.Success {
+		t.Fatalf("resp = %+v", resp)
+	}
+	data := resp.Data.(map[string]any)
+	if data["message_id"] != "edit-id" || data["target_id"] != "original-id" {
+		t.Fatalf("data = %+v", data)
+	}
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if fake.lastProtoTo.String() != "120363427307015739@g.us" {
+		t.Fatalf("edit to = %s", fake.lastProtoTo)
+	}
+	protocol := fake.lastProtoMessage.GetEditedMessage().GetMessage().GetProtocolMessage()
+	if protocol.GetKey().GetID() != "original-id" || protocol.GetEditedMessage().GetConversation() != "after" {
+		t.Fatalf("edit proto = %+v", protocol)
 	}
 }
 
