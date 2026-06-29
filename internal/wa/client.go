@@ -179,6 +179,16 @@ func (c *Client) SendText(ctx context.Context, to types.JID, text string) (whats
 	return cli.SendMessage(ctx, to, msg)
 }
 
+func (c *Client) SendEdit(ctx context.Context, chat types.JID, targetID types.MessageID, text string) (whatsmeow.SendResponse, error) {
+	c.mu.Lock()
+	cli := c.client
+	c.mu.Unlock()
+	if cli == nil || !cli.IsConnected() {
+		return whatsmeow.SendResponse{}, fmt.Errorf("not connected")
+	}
+	return cli.SendMessage(ctx, chat, BuildEditTextMessage(chat, targetID, text))
+}
+
 func (c *Client) SendProtoMessage(ctx context.Context, to types.JID, msg *waProto.Message) (whatsmeow.SendResponse, error) {
 	c.mu.Lock()
 	cli := c.client
