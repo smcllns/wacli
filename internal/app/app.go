@@ -39,6 +39,7 @@ type WAClient interface {
 	LeaveGroup(ctx context.Context, group types.JID) error
 
 	SendText(ctx context.Context, to types.JID, text string) (whatsmeow.SendResponse, error)
+	SendEdit(ctx context.Context, chat types.JID, targetID types.MessageID, text string) (whatsmeow.SendResponse, error)
 	SendProtoMessage(ctx context.Context, to types.JID, msg *waProto.Message) (whatsmeow.SendResponse, error)
 	Upload(ctx context.Context, data []byte, mediaType whatsmeow.MediaType) (whatsmeow.UploadResponse, error)
 	DownloadMediaToFile(ctx context.Context, directPath string, encFileHash, fileHash, mediaKey []byte, fileLength uint64, mediaType, mmsType string, targetPath string) (int64, error)

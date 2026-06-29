@@ -227,6 +227,14 @@ func (f *fakeWA) SendText(ctx context.Context, to types.JID, text string) (whats
 	return whatsmeow.SendResponse{ID: types.MessageID("msgid"), Timestamp: time.Date(2026, 6, 27, 19, 30, 0, 0, time.UTC)}, nil
 }
 
+func (f *fakeWA) SendEdit(ctx context.Context, chat types.JID, targetID types.MessageID, text string) (whatsmeow.SendResponse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.lastProtoTo = chat
+	f.lastProtoMessage = wa.BuildEditTextMessage(chat, targetID, text)
+	return whatsmeow.SendResponse{ID: types.MessageID("edit-id"), Timestamp: time.Date(2026, 6, 27, 19, 30, 0, 0, time.UTC)}, nil
+}
+
 func (f *fakeWA) SendProtoMessage(ctx context.Context, to types.JID, msg *waProto.Message) (whatsmeow.SendResponse, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

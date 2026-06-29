@@ -7,6 +7,7 @@ import (
 	waProto "go.mau.fi/whatsmeow/binary/proto"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
+	"google.golang.org/protobuf/proto"
 )
 
 type Media struct {
@@ -19,6 +20,25 @@ type Media struct {
 	FileSHA256    []byte
 	FileEncSHA256 []byte
 	FileLength    uint64
+}
+
+func BuildEditTextMessage(chat types.JID, targetID types.MessageID, text string) *waProto.Message {
+	return &waProto.Message{
+		EditedMessage: &waProto.FutureProofMessage{
+			Message: &waProto.Message{
+				ProtocolMessage: &waProto.ProtocolMessage{
+					Key: &waProto.MessageKey{
+						FromMe:    proto.Bool(true),
+						ID:        proto.String(string(targetID)),
+						RemoteJID: proto.String(chat.String()),
+					},
+					Type:          waProto.ProtocolMessage_MESSAGE_EDIT.Enum(),
+					EditedMessage: &waProto.Message{Conversation: proto.String(text)},
+					TimestampMS:   proto.Int64(time.Now().UnixMilli()),
+				},
+			},
+		},
+	}
 }
 
 type ParsedMessage struct {

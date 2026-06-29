@@ -10,6 +10,27 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+func TestBuildEditTextMessage(t *testing.T) {
+	chat, _ := types.ParseJID("120363428673142624@g.us")
+	msg := BuildEditTextMessage(chat, "original-id", "edited text")
+	protocol := msg.GetEditedMessage().GetMessage().GetProtocolMessage()
+	if protocol.GetType() != waProto.ProtocolMessage_MESSAGE_EDIT {
+		t.Fatalf("expected MESSAGE_EDIT, got %s", protocol.GetType())
+	}
+	if protocol.GetKey().GetID() != "original-id" {
+		t.Fatalf("expected original target id, got %q", protocol.GetKey().GetID())
+	}
+	if protocol.GetKey().GetRemoteJID() != chat.String() {
+		t.Fatalf("expected chat jid, got %q", protocol.GetKey().GetRemoteJID())
+	}
+	if !protocol.GetKey().GetFromMe() {
+		t.Fatalf("expected edit target from_me")
+	}
+	if protocol.GetEditedMessage().GetConversation() != "edited text" {
+		t.Fatalf("expected edited text, got %q", protocol.GetEditedMessage().GetConversation())
+	}
+}
+
 func TestParseHistoryMessageTextAndSender(t *testing.T) {
 	h := &waProto.WebMessageInfo{
 		Key: &waProto.MessageKey{
