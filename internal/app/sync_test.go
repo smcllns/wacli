@@ -94,7 +94,7 @@ func TestSyncStopsOnPermanentDisconnect(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 	_, err := a.Sync(ctx, SyncOptions{Mode: SyncModeFollow, AllowQR: false})
-	if err == nil || err.Error() != "permanent sync disconnect: 401: logged out from another device" {
+	if err == nil || err.Error() != "permanent connect disconnect: 401: logged out from another device" {
 		t.Fatalf("err = %v", err)
 	}
 }
