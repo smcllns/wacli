@@ -117,6 +117,10 @@ func extractWAProto(m *waProto.Message, pm *ParsedMessage) {
 		return
 	}
 
+	if edited := m.GetEditedMessage(); edited != nil {
+		extractWAProto(edited.GetMessage(), pm)
+	}
+
 	if protocol := m.GetProtocolMessage(); protocol != nil && protocol.GetType() == waProto.ProtocolMessage_MESSAGE_EDIT {
 		if key := protocol.GetKey(); key != nil {
 			pm.EditTargetID = strings.TrimSpace(key.GetID())
