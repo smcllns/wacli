@@ -121,38 +121,59 @@ func (a *App) RunDaemon(ctx context.Context, opts DaemonOptions) error {
 	defer queue.Close()
 
 	subscribers := daemonSubscribers{subscribers: map[chan DaemonEvent]struct{}{}}
+	var reconnectMu sync.Mutex
+	reconnecting := false
 	handlerID := a.wa.AddEventHandler(func(evt interface{}) {
-		msg, ok := evt.(*events.Message)
-		if !ok {
-			return
+		switch v := evt.(type) {
+		case *events.Message:
+			pm := wa.ParseLiveMessage(v)
+			if pm.ID == "" || pm.Chat.IsEmpty() {
+				return
+			}
+			displayText, err := a.storeParsedMessage(ctx, pm)
+			if err != nil {
+				sendDaemonError(errCh, fmt.Errorf("store daemon live message: %w", err))
+				return
+			}
+			rowid, err := a.db.MessageRowID(pm.Chat.String(), pm.ID)
+			if err != nil {
+				sendDaemonError(errCh, fmt.Errorf("lookup daemon live message rowid: %w", err))
+				return
+			}
+			subscribers.broadcast(DaemonEvent{
+				Type:         "message",
+				RowID:        rowid,
+				ChatJID:      pm.Chat.String(),
+				MsgID:        pm.ID,
+				SenderJID:    pm.SenderJID,
+				Timestamp:    pm.Timestamp.UTC().Format(time.RFC3339Nano),
+				FromMe:       pm.FromMe,
+				Text:         pm.Text,
+				DisplayText:  displayText,
+				MediaType:    daemonMediaType(pm.Media),
+				EditTargetID: pm.EditTargetID,
+			})
+		case events.PermanentDisconnect:
+			sendDaemonError(errCh, fmt.Errorf("permanent daemon disconnect: %s", v.PermanentDisconnectDescription()))
+		case *events.Disconnected:
+			reconnectMu.Lock()
+			if reconnecting {
+				reconnectMu.Unlock()
+				return
+			}
+			reconnecting = true
+			reconnectMu.Unlock()
+			go func() {
+				defer func() {
+					reconnectMu.Lock()
+					reconnecting = false
+					reconnectMu.Unlock()
+				}()
+				if err := a.wa.ReconnectWithBackoff(ctx, 2*time.Second, 30*time.Second); err != nil {
+					sendDaemonError(errCh, fmt.Errorf("reconnect daemon after disconnect: %w", err))
+				}
+			}()
 		}
-		pm := wa.ParseLiveMessage(msg)
-		if pm.ID == "" || pm.Chat.IsEmpty() {
-			return
-		}
-		displayText, err := a.storeParsedMessage(ctx, pm)
-		if err != nil {
-			sendDaemonError(errCh, fmt.Errorf("store daemon live message: %w", err))
-			return
-		}
-		rowid, err := a.db.MessageRowID(pm.Chat.String(), pm.ID)
-		if err != nil {
-			sendDaemonError(errCh, fmt.Errorf("lookup daemon live message rowid: %w", err))
-			return
-		}
-		subscribers.broadcast(DaemonEvent{
-			Type:         "message",
-			RowID:        rowid,
-			ChatJID:      pm.Chat.String(),
-			MsgID:        pm.ID,
-			SenderJID:    pm.SenderJID,
-			Timestamp:    pm.Timestamp.UTC().Format(time.RFC3339Nano),
-			FromMe:       pm.FromMe,
-			Text:         pm.Text,
-			DisplayText:  displayText,
-			MediaType:    daemonMediaType(pm.Media),
-			EditTargetID: pm.EditTargetID,
-		})
 	})
 	defer a.wa.RemoveEventHandler(handlerID)
 
@@ -348,11 +369,14 @@ func (a *App) handleDaemonWriteCommand(ctx context.Context, cmd DaemonCommand) (
 		if err != nil {
 			return nil, err
 		}
-		resp, err := a.wa.SendEdit(ctx, jid, types.MessageID(strings.TrimSpace(cmd.MsgID)), cmd.Message)
+		targetID := types.MessageID(strings.TrimSpace(cmd.MsgID))
+		resp, err := a.wa.SendEdit(ctx, jid, targetID, cmd.Message)
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"message_id": resp.ID, "sent": true, "target_id": strings.TrimSpace(cmd.MsgID)}, nil
+		data := daemonSendData(resp.ID, a.StoreConfirmedOutboundEdit(ctx, jid, resp, targetID, cmd.Message))
+		data["target_id"] = string(targetID)
+		return data, nil
 	case "mark_read":
 		chat, err := types.ParseJID(cmd.ChatJID)
 		if err != nil {

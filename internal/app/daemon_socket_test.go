@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/steipete/wacli/internal/store"
+	"go.mau.fi/whatsmeow"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
@@ -125,6 +126,19 @@ func newTestAppWithFakeWA(t *testing.T) *App {
 	return a
 }
 
+func mustJID(t *testing.T, raw string) types.JID {
+	t.Helper()
+	jid, err := types.ParseJID(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return jid
+}
+
+func fakeSendResponse(id string) whatsmeow.SendResponse {
+	return whatsmeow.SendResponse{ID: types.MessageID(id), Timestamp: time.Date(2026, 6, 27, 19, 30, 0, 0, time.UTC)}
+}
+
 func waitForUnixSocket(t *testing.T, socketPath string) {
 	t.Helper()
 	waitForUnixSocketOrError(t, socketPath, nil)
@@ -150,6 +164,81 @@ func waitForUnixSocketOrError(t *testing.T, socketPath string, errCh <-chan erro
 	}
 	t.Fatalf("timed out waiting for socket %s", socketPath)
 }
+func TestRunDaemonReconnectsAfterDisconnectedEvent(t *testing.T) {
+	a := newTestAppWithFakeWA(t)
+	fake := a.wa.(*fakeWA)
+	socketPath := shortSocketPath(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = a.RunDaemon(ctx, DaemonOptions{SocketPath: socketPath, QueueSize: 4}) }()
+	waitForUnixSocket(t, socketPath)
+
+	fake.mu.Lock()
+	fake.connected = false
+	fake.mu.Unlock()
+	fake.emit(&events.Disconnected{})
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		fake.mu.Lock()
+		reconnects := fake.reconnects
+		connected := fake.connected
+		fake.mu.Unlock()
+		if reconnects > 0 && connected {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("daemon did not reconnect after disconnected event")
+}
+
+func TestRunDaemonCoalescesRepeatedDisconnectedEvents(t *testing.T) {
+	a := newTestAppWithFakeWA(t)
+	fake := a.wa.(*fakeWA)
+	socketPath := shortSocketPath(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = a.RunDaemon(ctx, DaemonOptions{SocketPath: socketPath, QueueSize: 4}) }()
+	waitForUnixSocket(t, socketPath)
+
+	fake.mu.Lock()
+	fake.connected = false
+	fake.mu.Unlock()
+	fake.emit(&events.Disconnected{})
+	fake.emit(&events.Disconnected{})
+	fake.emit(&events.Disconnected{})
+
+	time.Sleep(50 * time.Millisecond)
+	fake.mu.Lock()
+	reconnects := fake.reconnects
+	fake.mu.Unlock()
+	if reconnects != 1 {
+		t.Fatalf("reconnects = %d, want one coalesced reconnect", reconnects)
+	}
+}
+
+func TestRunDaemonStopsOnPermanentDisconnect(t *testing.T) {
+	a := newTestAppWithFakeWA(t)
+	fake := a.wa.(*fakeWA)
+	socketPath := shortSocketPath(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	errCh := make(chan error, 1)
+	go func() { errCh <- a.RunDaemon(ctx, DaemonOptions{SocketPath: socketPath, QueueSize: 4}) }()
+	waitForUnixSocketOrError(t, socketPath, errCh)
+
+	fake.emit(&events.LoggedOut{OnConnect: false, Reason: events.ConnectFailureLoggedOut})
+
+	select {
+	case err := <-errCh:
+		if err == nil || !strings.Contains(err.Error(), "permanent daemon disconnect: 401: logged out from another device") {
+			t.Fatalf("err = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("RunDaemon did not stop after permanent disconnect")
+	}
+}
+
 func TestRunDaemonHandlesSendTextInProcess(t *testing.T) {
 	a := newTestAppWithFakeWA(t)
 	fake := a.wa.(*fakeWA)
@@ -201,6 +290,9 @@ func TestRunDaemonSendTextReportsPartialSuccessWhenPersistenceFails(t *testing.T
 func TestRunDaemonHandlesSendEditInProcess(t *testing.T) {
 	a := newTestAppWithFakeWA(t)
 	fake := a.wa.(*fakeWA)
+	if err := a.StoreConfirmedOutboundText(context.Background(), mustJID(t, "120363427307015739@g.us"), fakeSendResponse("original-id"), "before"); err != nil {
+		t.Fatalf("StoreConfirmedOutboundText: %v", err)
+	}
 	socketPath := shortSocketPath(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -212,8 +304,15 @@ func TestRunDaemonHandlesSendEditInProcess(t *testing.T) {
 		t.Fatalf("resp = %+v", resp)
 	}
 	data := resp.Data.(map[string]any)
-	if data["message_id"] != "edit-id" || data["target_id"] != "original-id" {
+	if data["message_id"] != "edit-id" || data["target_id"] != "original-id" || data["persisted"] != true {
 		t.Fatalf("data = %+v", data)
+	}
+	msg, err := a.db.GetMessage("120363427307015739@g.us", "original-id")
+	if err != nil {
+		t.Fatalf("GetMessage edited target: %v", err)
+	}
+	if msg.Text != "after" || msg.DisplayText != "after" {
+		t.Fatalf("stored edited target = %+v", msg)
 	}
 	fake.mu.Lock()
 	defer fake.mu.Unlock()
@@ -223,6 +322,53 @@ func TestRunDaemonHandlesSendEditInProcess(t *testing.T) {
 	protocol := fake.lastProtoMessage.GetEditedMessage().GetMessage().GetProtocolMessage()
 	if protocol.GetKey().GetID() != "original-id" || protocol.GetEditedMessage().GetConversation() != "after" {
 		t.Fatalf("edit proto = %+v", protocol)
+	}
+}
+
+func TestRunDaemonSendEditReportsPartialSuccessWhenTargetMissing(t *testing.T) {
+	a := newTestAppWithFakeWA(t)
+	socketPath := shortSocketPath(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = a.RunDaemon(ctx, DaemonOptions{SocketPath: socketPath, QueueSize: 4}) }()
+	waitForUnixSocket(t, socketPath)
+
+	resp := sendDaemonTestCommand(t, socketPath, `{"type":"send_edit","chatJid":"120363427307015739@g.us","msgId":"missing-id","message":"after"}`)
+	if !resp.Success {
+		t.Fatalf("resp = %+v, want partial success", resp)
+	}
+	data := resp.Data.(map[string]any)
+	if data["message_id"] != "edit-id" || data["target_id"] != "missing-id" || data["persisted"] != false || data["persist_error"] == "" {
+		t.Fatalf("data = %+v, want message_id with edit persist error", data)
+	}
+}
+
+func TestRunDaemonHandlesSubsequentSendEditInProcess(t *testing.T) {
+	a := newTestAppWithFakeWA(t)
+	chat := "120363427307015739@g.us"
+	if err := a.StoreConfirmedOutboundText(context.Background(), mustJID(t, chat), fakeSendResponse("original-id"), "before"); err != nil {
+		t.Fatalf("StoreConfirmedOutboundText: %v", err)
+	}
+	socketPath := shortSocketPath(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = a.RunDaemon(ctx, DaemonOptions{SocketPath: socketPath, QueueSize: 4}) }()
+	waitForUnixSocket(t, socketPath)
+
+	first := sendDaemonTestCommand(t, socketPath, `{"type":"send_edit","chatJid":"120363427307015739@g.us","msgId":"original-id","message":"after"}`)
+	if !first.Success {
+		t.Fatalf("first = %+v", first)
+	}
+	second := sendDaemonTestCommand(t, socketPath, `{"type":"send_edit","chatJid":"120363427307015739@g.us","msgId":"original-id","message":"final"}`)
+	if !second.Success {
+		t.Fatalf("second = %+v", second)
+	}
+	msg, err := a.db.GetMessage(chat, "original-id")
+	if err != nil {
+		t.Fatalf("GetMessage edited target: %v", err)
+	}
+	if msg.Text != "final" || msg.DisplayText != "final" {
+		t.Fatalf("stored subsequent edit target = %+v", msg)
 	}
 }
 

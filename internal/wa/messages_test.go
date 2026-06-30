@@ -159,6 +159,41 @@ func TestParseLiveMessageEditUsesEditedText(t *testing.T) {
 	}
 }
 
+func TestParseLiveMessageWrappedEditUsesEditedText(t *testing.T) {
+	chat, _ := types.ParseJID("123@s.whatsapp.net")
+	sender, _ := types.ParseJID("sender@s.whatsapp.net")
+	editType := waProto.ProtocolMessage_MESSAGE_EDIT
+
+	ev := &events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{
+				Chat:     chat,
+				Sender:   sender,
+				IsFromMe: false,
+			},
+			ID:        "edit-event",
+			Timestamp: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+			PushName:  "Sender",
+		},
+		Message: &waProto.Message{
+			EditedMessage: &waProto.FutureProofMessage{
+				Message: &waProto.Message{
+					ProtocolMessage: &waProto.ProtocolMessage{
+						Type:          &editType,
+						Key:           &waProto.MessageKey{ID: proto.String("original")},
+						EditedMessage: &waProto.Message{Conversation: proto.String("edited text")},
+					},
+				},
+			},
+		},
+	}
+
+	pm := ParseLiveMessage(ev)
+	if pm.Text != "edited text" || pm.EditTargetID != "original" {
+		t.Fatalf("unexpected parsed wrapped edit: %+v", pm)
+	}
+}
+
 func TestParseLiveMessageUnwrappedEditUsesInfoIDAsTarget(t *testing.T) {
 	chat, _ := types.ParseJID("123@s.whatsapp.net")
 	sender, _ := types.ParseJID("sender@s.whatsapp.net")

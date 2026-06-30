@@ -55,6 +55,7 @@ func (a *App) Sync(ctx context.Context, opts SyncOptions) (SyncResult, error) {
 	lastEvent.Store(time.Now().UTC().UnixNano())
 
 	disconnected := make(chan struct{}, 1)
+	permanentDisconnect := make(chan error, 1)
 
 	var stopMedia func()
 	var mediaJobs chan mediaJob
@@ -132,6 +133,11 @@ func (a *App) Sync(ctx context.Context, opts SyncOptions) (SyncResult, error) {
 			fmt.Fprintf(os.Stderr, "\rSynced %d messages...", messagesStored.Load())
 		case *events.Connected:
 			fmt.Fprintln(os.Stderr, "\nConnected.")
+		case events.PermanentDisconnect:
+			select {
+			case permanentDisconnect <- fmt.Errorf("permanent sync disconnect: %s", v.PermanentDisconnectDescription()):
+			default:
+			}
 		case *events.Disconnected:
 			fmt.Fprintln(os.Stderr, "\nDisconnected.")
 			select {
@@ -174,6 +180,8 @@ func (a *App) Sync(ctx context.Context, opts SyncOptions) (SyncResult, error) {
 			case <-ctx.Done():
 				fmt.Fprintln(os.Stderr, "\nStopping sync.")
 				return SyncResult{MessagesStored: messagesStored.Load()}, nil
+			case err := <-permanentDisconnect:
+				return SyncResult{MessagesStored: messagesStored.Load()}, err
 			case <-disconnected:
 				fmt.Fprintln(os.Stderr, "Reconnecting...")
 				if err := a.wa.ReconnectWithBackoff(ctx, 2*time.Second, 30*time.Second); err != nil {
@@ -195,6 +203,8 @@ func (a *App) Sync(ctx context.Context, opts SyncOptions) (SyncResult, error) {
 		case <-ctx.Done():
 			fmt.Fprintln(os.Stderr, "\nStopping sync.")
 			return SyncResult{MessagesStored: messagesStored.Load()}, nil
+		case err := <-permanentDisconnect:
+			return SyncResult{MessagesStored: messagesStored.Load()}, err
 		case <-disconnected:
 			fmt.Fprintln(os.Stderr, "Reconnecting...")
 			if err := a.wa.ReconnectWithBackoff(ctx, 2*time.Second, 30*time.Second); err != nil {

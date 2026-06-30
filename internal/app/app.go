@@ -127,8 +127,24 @@ func (a *App) Connect(ctx context.Context, allowQR bool, qrWriter func(string)) 
 	if err := a.OpenWA(); err != nil {
 		return err
 	}
-	return a.wa.Connect(ctx, wa.ConnectOptions{
+	permanentDisconnect := make(chan error, 1)
+	handlerID := a.wa.AddEventHandler(func(evt interface{}) {
+		if v, ok := evt.(events.PermanentDisconnect); ok {
+			select {
+			case permanentDisconnect <- fmt.Errorf("permanent connect disconnect: %s", v.PermanentDisconnectDescription()):
+			default:
+			}
+		}
+	})
+	defer a.wa.RemoveEventHandler(handlerID)
+	err := a.wa.Connect(ctx, wa.ConnectOptions{
 		AllowQR:  allowQR,
 		OnQRCode: qrWriter,
 	})
+	select {
+	case permanentErr := <-permanentDisconnect:
+		return permanentErr
+	default:
+	}
+	return err
 }
