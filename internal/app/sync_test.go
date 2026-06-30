@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -96,6 +97,39 @@ func TestSyncStopsOnPermanentDisconnect(t *testing.T) {
 	_, err := a.Sync(ctx, SyncOptions{Mode: SyncModeFollow, AllowQR: false})
 	if err == nil || err.Error() != "permanent connect disconnect: 401: logged out from another device" {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestSyncSuppressesIncompleteEditOnRequestError(t *testing.T) {
+	a := newTestApp(t)
+	f := newFakeWA()
+	a.wa = f
+	f.requestUnavailableErr = errors.New("phone unavailable")
+
+	chat := types.JID{User: "123", Server: types.DefaultUserServer}
+	sender := types.JID{User: "sender", Server: types.HiddenUserServer}
+	f.connectEvents = []interface{}{&events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{Chat: chat, Sender: sender},
+			ID:            "edit-placeholder",
+			Edit:          types.EditAttributeMessageEdit,
+			Timestamp:     time.Now().UTC(),
+			PushName:      "Alice",
+		},
+		Message: &waProto.Message{},
+	}}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	_, err := a.Sync(ctx, SyncOptions{Mode: SyncModeFollow, AllowQR: false})
+	if err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+	if _, err := a.db.GetMessage(chat.String(), "edit-placeholder"); err == nil {
+		t.Fatal("incomplete edit was stored after request error")
+	}
+	if n, err := a.db.CountMessages(); err != nil || n != 0 {
+		t.Fatalf("message count = %d err=%v", n, err)
 	}
 }
 

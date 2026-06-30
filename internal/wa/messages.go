@@ -55,9 +55,14 @@ type ParsedMessage struct {
 	ReactionToID   string
 	ReactionEmoji  string
 	EditTargetID   string
+	Placeholder    bool
 }
 
 func ParseLiveMessage(evt *events.Message) ParsedMessage {
+	return ParseLiveMessagePayload(evt, evt.Message)
+}
+
+func ParseLiveMessagePayload(evt *events.Message, payload *waProto.Message) ParsedMessage {
 	msg := ParsedMessage{
 		Chat:      evt.Info.Chat,
 		ID:        evt.Info.ID,
@@ -68,11 +73,16 @@ func ParseLiveMessage(evt *events.Message) ParsedMessage {
 	if s := evt.Info.Sender.String(); s != "" {
 		msg.SenderJID = s
 	}
-	if evt.IsEdit || evt.Info.Edit == types.EditAttributeMessageEdit {
+	if evt.Message != nil {
+		if key := evt.Message.GetSecretEncryptedMessage().GetTargetMessageKey(); key != nil {
+			msg.EditTargetID = strings.TrimSpace(key.GetID())
+		}
+	}
+	if msg.EditTargetID == "" && (evt.IsEdit || evt.Info.Edit == types.EditAttributeMessageEdit) {
 		msg.EditTargetID = strings.TrimSpace(evt.Info.ID)
 	}
 
-	extractWAProto(evt.Message, &msg)
+	extractWAProto(payload, &msg)
 	return msg
 }
 
@@ -126,6 +136,10 @@ func extractWAProto(m *waProto.Message, pm *ParsedMessage) {
 			pm.EditTargetID = strings.TrimSpace(key.GetID())
 		}
 		extractWAProto(protocol.GetEditedMessage(), pm)
+	}
+
+	if m.GetPlaceholderMessage() != nil {
+		pm.Placeholder = true
 	}
 
 	if reaction := m.GetReactionMessage(); reaction != nil {

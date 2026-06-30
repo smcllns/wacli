@@ -126,8 +126,19 @@ func (a *App) RunDaemon(ctx context.Context, opts DaemonOptions) error {
 	handlerID := a.wa.AddEventHandler(func(evt interface{}) {
 		switch v := evt.(type) {
 		case *events.Message:
-			pm := wa.ParseLiveMessage(v)
+			pm, decryptErr := a.parseLiveMessage(ctx, v)
+			if decryptErr != nil {
+				fmt.Fprintf(os.Stderr, "\nDecrypt secret encrypted message failed: %v\n", decryptErr)
+			}
 			if pm.ID == "" || pm.Chat.IsEmpty() {
+				return
+			}
+			suppressed, err := a.suppressAndRequestIncompleteMessage(ctx, pm)
+			if err != nil {
+				sendDaemonError(errCh, fmt.Errorf("request unavailable placeholder message: %w", err))
+				return
+			}
+			if suppressed {
 				return
 			}
 			displayText, err := a.storeParsedMessage(ctx, pm)
