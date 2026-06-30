@@ -55,3 +55,20 @@ func (a *App) StoreConfirmedOutboundReaction(ctx context.Context, chat types.JID
 	})
 	return err
 }
+
+func (a *App) StoreConfirmedOutboundEdit(ctx context.Context, chat types.JID, resp whatsmeow.SendResponse, targetID types.MessageID, text string) error {
+	if resp.ID == "" {
+		return errors.New("send response missing message id")
+	}
+	if resp.Timestamp.IsZero() {
+		return errors.New("send response missing timestamp")
+	}
+	updated, err := a.db.UpdateMessageTextDisplay(chat.String(), string(targetID), text, text)
+	if err != nil {
+		return err
+	}
+	if !updated {
+		return errors.New("edit target message not found in local store")
+	}
+	return nil
+}

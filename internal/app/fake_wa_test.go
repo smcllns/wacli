@@ -41,6 +41,8 @@ type fakeWA struct {
 	lastReadTimestamp time.Time
 	lastReadChat      types.JID
 	lastReadSender    types.JID
+
+	reconnects int
 }
 
 func newFakeWA() *fakeWA {
@@ -107,6 +109,9 @@ func (f *fakeWA) RemoveEventHandler(id uint32) {
 }
 
 func (f *fakeWA) ReconnectWithBackoff(ctx context.Context, minDelay, maxDelay time.Duration) error {
+	f.mu.Lock()
+	f.reconnects++
+	f.mu.Unlock()
 	return f.Connect(ctx, wa.ConnectOptions{AllowQR: false})
 }
 
