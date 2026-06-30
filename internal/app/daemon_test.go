@@ -31,6 +31,16 @@ func TestValidateDaemonCommandRequiresChatJIDForSendText(t *testing.T) {
 	}
 }
 
+func TestValidateDaemonCommandRequiresMessageIDForSendEdit(t *testing.T) {
+	cmd, err := parseDaemonCommand([]byte(`{"type":"send_edit","chatJid":"120@g.us","message":"after"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateDaemonCommand(cmd); err == nil || err.Error() != "send_edit requires msgId" {
+		t.Fatalf("err = %v, want msgId requirement", err)
+	}
+}
+
 func TestValidateDaemonCommandRejectsBlankMarkReadMessageIDs(t *testing.T) {
 	cmd, err := parseDaemonCommand([]byte(`{"type":"mark_read","chatJid":"120@g.us","msgIds":["m1","  "],"timestamp":"2026-06-26T15:00:00Z"}`))
 	if err != nil {
