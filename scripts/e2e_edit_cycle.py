@@ -46,6 +46,18 @@ def response_data(line: bytes) -> dict[str, Any]:
     return data
 
 
+def normalize_target(send_chat: str, expect_chat: str | None, require_group: bool) -> str | None:
+    if not require_group:
+        return expect_chat
+    if not send_chat.endswith("@g.us"):
+        raise ValueError(f"--require-group needs --send-chat to be a group JID, got {send_chat!r}")
+    if expect_chat is None:
+        return send_chat
+    if expect_chat != send_chat:
+        raise ValueError(f"--require-group needs --expect-chat to match --send-chat, got {expect_chat!r}")
+    return expect_chat
+
+
 def send_command(socket_path: str, command: dict[str, Any], timeout: float) -> dict[str, Any]:
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
         sock.settimeout(timeout)
@@ -90,6 +102,7 @@ def wait_for_event(sock: socket.socket, file: Any, expected_text: str, expected_
 
 def run(args: argparse.Namespace) -> dict[str, Any]:
     plan = build_plan(args.token)
+    expect_chat = normalize_target(args.send_chat, args.expect_chat, args.require_group)
     sender_health = require_capabilities(args.sender_socket, ["send_text", "send_edit"], args.timeout)
     receiver_health = require_capabilities(args.receiver_socket, [], args.timeout)
 
@@ -100,7 +113,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "senderSocket": args.sender_socket,
             "receiverSocket": args.receiver_socket,
             "sendChat": args.send_chat,
-            "expectChat": args.expect_chat,
+            "expectChat": expect_chat,
             "originalText": plan.original_text,
             "firstEditText": plan.first_edit_text,
             "secondEditText": plan.second_edit_text,
@@ -116,13 +129,13 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         original_id = str(send_data.get("message_id", ""))
         if not original_id:
             raise RuntimeError(f"send_text response missing message_id: {send_data}")
-        original_event = wait_for_event(receiver_sock, receiver_file, plan.original_text, args.expect_chat, deadline)
+        original_event = wait_for_event(receiver_sock, receiver_file, plan.original_text, expect_chat, deadline)
 
         first_edit_data = send_command(args.sender_socket, {"type": "send_edit", "chatJid": args.send_chat, "msgId": original_id, "message": plan.first_edit_text}, args.timeout)
-        first_edit_event = wait_for_event(receiver_sock, receiver_file, plan.first_edit_text, args.expect_chat, deadline)
+        first_edit_event = wait_for_event(receiver_sock, receiver_file, plan.first_edit_text, expect_chat, deadline)
 
         second_edit_data = send_command(args.sender_socket, {"type": "send_edit", "chatJid": args.send_chat, "msgId": original_id, "message": plan.second_edit_text}, args.timeout)
-        second_edit_event = wait_for_event(receiver_sock, receiver_file, plan.second_edit_text, args.expect_chat, deadline)
+        second_edit_event = wait_for_event(receiver_sock, receiver_file, plan.second_edit_text, expect_chat, deadline)
 
         return {
             "success": True,
@@ -144,6 +157,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--receiver-socket", required=True)
     parser.add_argument("--send-chat", required=True, help="Recipient chat JID from the sender device's perspective")
     parser.add_argument("--expect-chat", help="Expected chat JID in receiver events, usually the sender's user JID for DM tests")
+    parser.add_argument("--require-group", action="store_true", help="Hard-fail unless --send-chat is a group JID; defaults --expect-chat to the same group")
     parser.add_argument("--token", default=datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S"))
     parser.add_argument("--timeout", type=float, default=10.0)
     parser.add_argument("--wait-seconds", type=float, default=60.0)

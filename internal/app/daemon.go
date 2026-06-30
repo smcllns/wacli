@@ -153,6 +153,8 @@ func (a *App) RunDaemon(ctx context.Context, opts DaemonOptions) error {
 				MediaType:    daemonMediaType(pm.Media),
 				EditTargetID: pm.EditTargetID,
 			})
+		case events.PermanentDisconnect:
+			sendDaemonError(errCh, fmt.Errorf("permanent daemon disconnect: %s", v.PermanentDisconnectDescription()))
 		case *events.Disconnected:
 			reconnectMu.Lock()
 			if reconnecting {

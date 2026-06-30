@@ -217,6 +217,28 @@ func TestRunDaemonCoalescesRepeatedDisconnectedEvents(t *testing.T) {
 	}
 }
 
+func TestRunDaemonStopsOnPermanentDisconnect(t *testing.T) {
+	a := newTestAppWithFakeWA(t)
+	fake := a.wa.(*fakeWA)
+	socketPath := shortSocketPath(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	errCh := make(chan error, 1)
+	go func() { errCh <- a.RunDaemon(ctx, DaemonOptions{SocketPath: socketPath, QueueSize: 4}) }()
+	waitForUnixSocketOrError(t, socketPath, errCh)
+
+	fake.emit(&events.LoggedOut{OnConnect: false, Reason: events.ConnectFailureLoggedOut})
+
+	select {
+	case err := <-errCh:
+		if err == nil || !strings.Contains(err.Error(), "permanent daemon disconnect: 401: logged out from another device") {
+			t.Fatalf("err = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("RunDaemon did not stop after permanent disconnect")
+	}
+}
+
 func TestRunDaemonHandlesSendTextInProcess(t *testing.T) {
 	a := newTestAppWithFakeWA(t)
 	fake := a.wa.(*fakeWA)

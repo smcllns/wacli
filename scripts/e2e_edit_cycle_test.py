@@ -4,7 +4,7 @@ import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-from e2e_edit_cycle import build_plan, event_matches_text, response_data
+from e2e_edit_cycle import build_plan, event_matches_text, response_data, normalize_target
 
 
 class EditCycleTest(unittest.TestCase):
@@ -23,6 +23,17 @@ class EditCycleTest(unittest.TestCase):
         self.assertEqual(response_data(b'{"type":"response","success":true,"data":{"message_id":"m1"}}\n'), {"message_id": "m1"})
         with self.assertRaises(RuntimeError):
             response_data(b'{"type":"response","success":false,"error":"boom"}\n')
+
+    def test_group_required_rejects_dm_send_chat(self):
+        with self.assertRaisesRegex(ValueError, "group JID"):
+            normalize_target("16504417792@s.whatsapp.net", None, True)
+
+    def test_group_required_defaults_expect_chat_to_send_group(self):
+        self.assertEqual(normalize_target("120363409936547663@g.us", None, True), "120363409936547663@g.us")
+
+    def test_group_required_rejects_mismatched_expect_chat(self):
+        with self.assertRaisesRegex(ValueError, "expect-chat"):
+            normalize_target("120363409936547663@g.us", "16504417792@s.whatsapp.net", True)
 
 
 if __name__ == "__main__":
