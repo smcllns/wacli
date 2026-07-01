@@ -219,6 +219,31 @@ func TestParseLiveMessageUnwrappedEditUsesInfoIDAsTarget(t *testing.T) {
 	}
 }
 
+func TestParseLiveMessagePlaceholderEdit(t *testing.T) {
+	chat, _ := types.ParseJID("123@s.whatsapp.net")
+	sender, _ := types.ParseJID("sender@s.whatsapp.net")
+
+	ev := &events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{
+				Chat:     chat,
+				Sender:   sender,
+				IsFromMe: false,
+			},
+			ID:        "edit-event",
+			Edit:      types.EditAttributeMessageEdit,
+			Timestamp: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+			PushName:  "Sender",
+		},
+		Message: &waProto.Message{PlaceholderMessage: &waProto.PlaceholderMessage{}},
+	}
+
+	pm := ParseLiveMessage(ev)
+	if !pm.Placeholder || pm.EditTargetID != "edit-event" || pm.Text != "" {
+		t.Fatalf("unexpected placeholder edit parse: %+v", pm)
+	}
+}
+
 func TestParseLiveMessageReply(t *testing.T) {
 	chat, _ := types.ParseJID("123@s.whatsapp.net")
 	sender, _ := types.ParseJID("sender@s.whatsapp.net")

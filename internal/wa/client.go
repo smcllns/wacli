@@ -246,6 +246,16 @@ func (c *Client) DecryptReaction(ctx context.Context, reaction *events.Message) 
 	return cli.DecryptReaction(ctx, reaction)
 }
 
+func (c *Client) DecryptSecretEncryptedMessage(ctx context.Context, msg *events.Message) (*waProto.Message, error) {
+	c.mu.Lock()
+	cli := c.client
+	c.mu.Unlock()
+	if cli == nil || !cli.IsConnected() {
+		return nil, fmt.Errorf("not connected")
+	}
+	return cli.DecryptSecretEncryptedMessage(ctx, msg)
+}
+
 func (c *Client) RequestHistorySyncOnDemand(ctx context.Context, lastKnown types.MessageInfo, count int) (types.MessageID, error) {
 	c.mu.Lock()
 	cli := c.client
@@ -274,6 +284,20 @@ func (c *Client) RequestHistorySyncOnDemand(ctx context.Context, lastKnown types
 		return "", err
 	}
 	return resp.ID, nil
+}
+
+func (c *Client) RequestUnavailableMessage(ctx context.Context, chat, sender types.JID, id types.MessageID) error {
+	c.mu.Lock()
+	cli := c.client
+	c.mu.Unlock()
+	if cli == nil || !cli.IsConnected() {
+		return fmt.Errorf("not connected")
+	}
+	if chat.IsEmpty() || sender.IsEmpty() || strings.TrimSpace(string(id)) == "" {
+		return fmt.Errorf("invalid unavailable message request")
+	}
+	_, err := cli.SendPeerMessage(ctx, cli.BuildUnavailableMessageRequest(chat, sender, string(id)))
+	return err
 }
 
 func ParseUserOrJID(s string) (types.JID, error) {

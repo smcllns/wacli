@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"github.com/steipete/wacli/internal/store"
 	"go.mau.fi/whatsmeow"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
+	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	"google.golang.org/protobuf/proto"
@@ -726,6 +728,239 @@ func TestRunDaemonSubscribeEmitsEditedMessage(t *testing.T) {
 	}
 	if stored.Text != "after" || stored.DisplayText != "after" {
 		t.Fatalf("stored original = %+v", stored)
+	}
+}
+
+func TestRunDaemonDecryptsSecretEncryptedEdit(t *testing.T) {
+	a := newTestAppWithFakeWA(t)
+	fake := a.wa.(*fakeWA)
+	socketPath := shortSocketPath(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = a.RunDaemon(ctx, DaemonOptions{SocketPath: socketPath, QueueSize: 4}) }()
+	waitForUnixSocket(t, socketPath)
+
+	conn, err := net.Dial("unix", socketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	decoder := json.NewDecoder(conn)
+	if _, err := conn.Write([]byte(`{"type":"subscribe"}` + "\n")); err != nil {
+		t.Fatal(err)
+	}
+	var ack DaemonResponse
+	if err := decoder.Decode(&ack); err != nil {
+		t.Fatal(err)
+	}
+	if !ack.Success {
+		t.Fatalf("ack = %+v", ack)
+	}
+
+	chat := types.JID{User: "123", Server: types.DefaultUserServer}
+	sender := types.JID{User: "sender", Server: types.HiddenUserServer}
+	fake.emit(&events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{Chat: chat, Sender: sender},
+			ID:            "original",
+			Timestamp:     time.Now().UTC().Add(-time.Minute),
+			PushName:      "Alice",
+		},
+		Message: &waProto.Message{Conversation: proto.String("before")},
+	})
+	var original DaemonEvent
+	if err := decoder.Decode(&original); err != nil {
+		t.Fatal(err)
+	}
+
+	secretType := waE2E.SecretEncryptedMessage_MESSAGE_EDIT
+	fake.decryptSecretEncryptedMessage = &waProto.Message{Conversation: proto.String("after")}
+	fake.emit(&events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{Chat: chat, Sender: sender},
+			ID:            "edit-secret",
+			Edit:          types.EditAttributeMessageEdit,
+			Timestamp:     time.Now().UTC(),
+			PushName:      "Alice",
+		},
+		Message: &waProto.Message{SecretEncryptedMessage: &waProto.SecretEncryptedMessage{
+			SecretEncType: &secretType,
+			TargetMessageKey: &waProto.MessageKey{
+				RemoteJID: proto.String(chat.String()),
+				FromMe:    proto.Bool(false),
+				ID:        proto.String("original"),
+			},
+		}},
+	})
+
+	var event DaemonEvent
+	if err := decoder.Decode(&event); err != nil {
+		t.Fatal(err)
+	}
+	if event.Type != "message" || event.MsgID != "edit-secret" || event.Text != "after" || event.DisplayText != "Edited before → after" || event.EditTargetID != "original" || event.RowID <= original.RowID {
+		t.Fatalf("event = %+v original=%+v", event, original)
+	}
+	stored, err := a.db.GetMessage(chat.String(), "original")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Text != "after" || stored.DisplayText != "after" {
+		t.Fatalf("stored original = %+v", stored)
+	}
+	fake.mu.Lock()
+	requestedID := fake.requestedUnavailableID
+	fake.mu.Unlock()
+	if requestedID != "" {
+		t.Fatalf("requested unavailable id = %q", requestedID)
+	}
+}
+
+func TestRunDaemonRequestsUnavailableWhenSecretEncryptedEditDecryptFails(t *testing.T) {
+	a := newTestAppWithFakeWA(t)
+	fake := a.wa.(*fakeWA)
+	fake.decryptSecretEncryptedErr = errors.New("missing message secret")
+	socketPath := shortSocketPath(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = a.RunDaemon(ctx, DaemonOptions{SocketPath: socketPath, QueueSize: 4}) }()
+	waitForUnixSocket(t, socketPath)
+
+	conn, err := net.Dial("unix", socketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	decoder := json.NewDecoder(conn)
+	if _, err := conn.Write([]byte(`{"type":"subscribe"}` + "\n")); err != nil {
+		t.Fatal(err)
+	}
+	var ack DaemonResponse
+	if err := decoder.Decode(&ack); err != nil {
+		t.Fatal(err)
+	}
+	if !ack.Success {
+		t.Fatalf("ack = %+v", ack)
+	}
+
+	chat := types.JID{User: "123", Server: types.DefaultUserServer}
+	sender := types.JID{User: "sender", Server: types.HiddenUserServer}
+	secretType := waE2E.SecretEncryptedMessage_MESSAGE_EDIT
+	fake.emit(&events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{Chat: chat, Sender: sender},
+			ID:            "edit-secret",
+			Edit:          types.EditAttributeMessageEdit,
+			Timestamp:     time.Now().UTC(),
+			PushName:      "Alice",
+		},
+		Message: &waProto.Message{SecretEncryptedMessage: &waProto.SecretEncryptedMessage{
+			SecretEncType: &secretType,
+			TargetMessageKey: &waProto.MessageKey{
+				RemoteJID: proto.String(chat.String()),
+				FromMe:    proto.Bool(false),
+				ID:        proto.String("original"),
+			},
+		}},
+	})
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		fake.mu.Lock()
+		requestedID := fake.requestedUnavailableID
+		fake.mu.Unlock()
+		if requestedID == "edit-secret" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	fake.mu.Lock()
+	requestedID := fake.requestedUnavailableID
+	fake.mu.Unlock()
+	if requestedID != "edit-secret" {
+		t.Fatalf("requested unavailable id = %q", requestedID)
+	}
+	if _, err := a.db.GetMessage(chat.String(), "edit-secret"); err == nil {
+		t.Fatal("failed secret edit was stored")
+	}
+	resp := sendDaemonTestCommand(t, socketPath, `{"type":"health"}`)
+	if !resp.Success {
+		t.Fatalf("health after decrypt failure = %+v", resp)
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(50 * time.Millisecond))
+	var event DaemonEvent
+	if err := decoder.Decode(&event); err == nil {
+		t.Fatalf("failed secret edit was broadcast: %+v", event)
+	}
+}
+
+func TestRunDaemonRequestsUnavailableForIncompleteEdit(t *testing.T) {
+	a := newTestAppWithFakeWA(t)
+	fake := a.wa.(*fakeWA)
+	socketPath := shortSocketPath(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = a.RunDaemon(ctx, DaemonOptions{SocketPath: socketPath, QueueSize: 4}) }()
+	waitForUnixSocket(t, socketPath)
+
+	conn, err := net.Dial("unix", socketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	decoder := json.NewDecoder(conn)
+	if _, err := conn.Write([]byte(`{"type":"subscribe"}` + "\n")); err != nil {
+		t.Fatal(err)
+	}
+	var ack DaemonResponse
+	if err := decoder.Decode(&ack); err != nil {
+		t.Fatal(err)
+	}
+	if !ack.Success {
+		t.Fatalf("ack = %+v", ack)
+	}
+
+	chat := types.JID{User: "123", Server: types.DefaultUserServer}
+	sender := types.JID{User: "sender", Server: types.HiddenUserServer}
+	fake.emit(&events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{Chat: chat, Sender: sender},
+			ID:            "edit-placeholder",
+			Edit:          types.EditAttributeMessageEdit,
+			Timestamp:     time.Now().UTC(),
+			PushName:      "Alice",
+		},
+		Message: &waProto.Message{},
+	})
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		fake.mu.Lock()
+		requestedID := fake.requestedUnavailableID
+		requestedChat := fake.requestedUnavailableChat
+		requestedSender := fake.requestedUnavailableSender
+		fake.mu.Unlock()
+		if requestedID == "edit-placeholder" {
+			if requestedChat != chat || requestedSender != sender {
+				t.Fatalf("request = (%s,%s,%s)", requestedChat, requestedSender, requestedID)
+			}
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	fake.mu.Lock()
+	requestedID := fake.requestedUnavailableID
+	fake.mu.Unlock()
+	if requestedID != "edit-placeholder" {
+		t.Fatalf("requested unavailable id = %q", requestedID)
+	}
+	if _, err := a.db.GetMessage(chat.String(), "edit-placeholder"); err == nil {
+		t.Fatal("incomplete edit was stored")
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(50 * time.Millisecond))
+	var event DaemonEvent
+	if err := decoder.Decode(&event); err == nil {
+		t.Fatalf("incomplete edit was broadcast: %+v", event)
 	}
 }
 

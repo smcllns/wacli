@@ -85,7 +85,16 @@ func (a *App) Sync(ctx context.Context, opts SyncOptions) (SyncResult, error) {
 
 		switch v := evt.(type) {
 		case *events.Message:
-			pm := wa.ParseLiveMessage(v)
+			pm, decryptErr := a.parseLiveMessage(ctx, v)
+			if decryptErr != nil {
+				fmt.Fprintf(os.Stderr, "\nDecrypt secret encrypted message failed: %v\n", decryptErr)
+			}
+			if suppressed, err := a.suppressAndRequestIncompleteMessage(ctx, pm); err != nil {
+				fmt.Fprintf(os.Stderr, "\nRequest unavailable message failed: %v\n", err)
+				return
+			} else if suppressed {
+				return
+			}
 			if pm.ReactionToID != "" && pm.ReactionEmoji == "" && v.Message != nil && v.Message.GetEncReactionMessage() != nil {
 				if reaction, err := a.wa.DecryptReaction(ctx, v); err == nil && reaction != nil {
 					pm.ReactionEmoji = reaction.GetText()
@@ -218,6 +227,32 @@ func (a *App) Sync(ctx context.Context, opts SyncOptions) (SyncResult, error) {
 			}
 		}
 	}
+}
+
+func (a *App) parseLiveMessage(ctx context.Context, evt *events.Message) (wa.ParsedMessage, error) {
+	pm := wa.ParseLiveMessage(evt)
+	if evt.Message == nil || evt.Message.GetSecretEncryptedMessage() == nil {
+		return pm, nil
+	}
+	decrypted, err := a.wa.DecryptSecretEncryptedMessage(ctx, evt)
+	if err != nil {
+		return pm, err
+	}
+	return wa.ParseLiveMessagePayload(evt, decrypted), nil
+}
+
+func (a *App) suppressAndRequestIncompleteMessage(ctx context.Context, pm wa.ParsedMessage) (bool, error) {
+	if baseDisplayText(pm) != "" || (!pm.Placeholder && pm.EditTargetID == "") {
+		return false, nil
+	}
+	if pm.Chat.IsEmpty() || strings.TrimSpace(pm.ID) == "" || strings.TrimSpace(pm.SenderJID) == "" {
+		return true, fmt.Errorf("invalid incomplete message")
+	}
+	sender, err := types.ParseJID(pm.SenderJID)
+	if err != nil {
+		return true, err
+	}
+	return true, a.wa.RequestUnavailableMessage(ctx, pm.Chat, sender, types.MessageID(pm.ID))
 }
 
 func chatKind(chat types.JID) string {

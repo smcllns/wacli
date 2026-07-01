@@ -42,6 +42,14 @@ type fakeWA struct {
 	lastReadChat      types.JID
 	lastReadSender    types.JID
 
+	requestedUnavailableChat   types.JID
+	requestedUnavailableSender types.JID
+	requestedUnavailableID     types.MessageID
+	requestUnavailableErr      error
+
+	decryptSecretEncryptedMessage *waProto.Message
+	decryptSecretEncryptedErr     error
+
 	reconnects int
 }
 
@@ -270,6 +278,12 @@ func (f *fakeWA) DecryptReaction(ctx context.Context, reaction *events.Message) 
 	return nil, fmt.Errorf("not supported")
 }
 
+func (f *fakeWA) DecryptSecretEncryptedMessage(ctx context.Context, msg *events.Message) (*waProto.Message, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.decryptSecretEncryptedMessage, f.decryptSecretEncryptedErr
+}
+
 func (f *fakeWA) DownloadMediaToFile(ctx context.Context, directPath string, encFileHash, fileHash, mediaKey []byte, fileLength uint64, mediaType, mmsType string, targetPath string) (int64, error) {
 	if err := os.MkdirAll(filepath.Dir(targetPath), 0o700); err != nil {
 		return 0, err
@@ -292,6 +306,15 @@ func (f *fakeWA) RequestHistorySyncOnDemand(ctx context.Context, lastKnown types
 		f.emit(cb(lastKnown, count))
 	}
 	return types.MessageID("req"), nil
+}
+
+func (f *fakeWA) RequestUnavailableMessage(ctx context.Context, chat, sender types.JID, id types.MessageID) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.requestedUnavailableChat = chat
+	f.requestedUnavailableSender = sender
+	f.requestedUnavailableID = id
+	return f.requestUnavailableErr
 }
 
 func (f *fakeWA) Logout(ctx context.Context) error {
