@@ -128,6 +128,75 @@ func TestMessageUpsertIdempotentAndContext(t *testing.T) {
 	}
 }
 
+func TestMessageUpsertPersistsAlbumMetadata(t *testing.T) {
+	db := openTestDB(t)
+	chat := "123@s.whatsapp.net"
+	if err := db.UpsertChat(chat, "dm", "Alice", time.Now()); err != nil {
+		t.Fatalf("UpsertChat: %v", err)
+	}
+
+	params := UpsertMessageParams{
+		ChatJID:            chat,
+		MsgID:              "album-child",
+		Timestamp:          time.Now(),
+		AlbumExpectedCount: 3,
+		AlbumParentID:      "album-parent",
+		AlbumMessageIndex:  2,
+	}
+
+	if err := db.UpsertMessage(params); err != nil {
+		t.Fatalf("UpsertMessage: %v", err)
+	}
+	var expectedCount int64
+	var storedParent string
+	var storedIndex int64
+	if err := db.sql.QueryRow(`
+		SELECT album_expected_count, album_parent_msg_id, album_message_index
+		FROM messages WHERE chat_jid = ? AND msg_id = ?
+	`, chat, "album-child").Scan(&expectedCount, &storedParent, &storedIndex); err != nil {
+		t.Fatalf("query album metadata: %v", err)
+	}
+	if expectedCount != 3 || storedParent != "album-parent" || storedIndex != 2 {
+		t.Fatalf("unexpected album metadata: count=%d parent=%q index=%d", expectedCount, storedParent, storedIndex)
+	}
+}
+
+func TestOpenMigratesExistingMessageTableForAlbumMetadata(t *testing.T) {
+	db := openTestDB(t)
+	dbPath := db.path
+	if err := db.Close(); err != nil {
+		t.Fatalf("close initial DB: %v", err)
+	}
+
+	raw, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		t.Fatalf("open raw DB: %v", err)
+	}
+	for _, column := range []string{"album_expected_count", "album_parent_msg_id", "album_message_index"} {
+		if _, err := raw.Exec(`ALTER TABLE messages DROP COLUMN ` + column); err != nil {
+			t.Fatalf("drop %s: %v", column, err)
+		}
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatalf("close raw DB: %v", err)
+	}
+
+	migrated, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("reopen existing DB: %v", err)
+	}
+	defer migrated.Close()
+	for _, column := range []string{"album_expected_count", "album_parent_msg_id", "album_message_index"} {
+		exists, err := migrated.tableHasColumn("messages", column)
+		if err != nil {
+			t.Fatalf("inspect %s: %v", column, err)
+		}
+		if !exists {
+			t.Fatalf("expected migration to add %s", column)
+		}
+	}
+}
+
 func TestMediaDownloadInfoAndMarkDownloaded(t *testing.T) {
 	db := openTestDB(t)
 

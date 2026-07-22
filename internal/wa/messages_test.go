@@ -5,6 +5,7 @@ import (
 	"time"
 
 	waProto "go.mau.fi/whatsmeow/binary/proto"
+	waE2E "go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	"google.golang.org/protobuf/proto"
@@ -93,6 +94,48 @@ func TestParseLiveMessageImageClonesBytes(t *testing.T) {
 	key[0] = 9
 	if pm.Media.MediaKey[0] == 9 {
 		t.Fatalf("expected MediaKey to be cloned")
+	}
+}
+
+func TestParseLiveMessageAlbumMetadata(t *testing.T) {
+	chat, _ := types.ParseJID("123@s.whatsapp.net")
+	sender, _ := types.ParseJID("sender@s.whatsapp.net")
+
+	parent := &events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{Chat: chat, Sender: sender},
+			ID:            "album-parent",
+		},
+		Message: &waProto.Message{AlbumMessage: &waE2E.AlbumMessage{
+			ExpectedImageCount: proto.Uint32(2),
+			ExpectedVideoCount: proto.Uint32(1),
+		}},
+	}
+	parsedParent := ParseLiveMessage(parent)
+	if parsedParent.AlbumExpectedCount != 3 {
+		t.Fatalf("expected album attachment count 3, got %+v", parsedParent)
+	}
+
+	associationType := waE2E.MessageAssociation_MEDIA_ALBUM
+	child := &events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{Chat: chat, Sender: sender},
+			ID:            "album-child",
+		},
+		Message: &waProto.Message{
+			ImageMessage: &waProto.ImageMessage{},
+			MessageContextInfo: &waE2E.MessageContextInfo{
+				MessageAssociation: &waE2E.MessageAssociation{
+					AssociationType:  &associationType,
+					ParentMessageKey: &waProto.MessageKey{ID: proto.String("album-parent")},
+					MessageIndex:     proto.Int32(2),
+				},
+			},
+		},
+	}
+	parsedChild := ParseLiveMessage(child)
+	if parsedChild.AlbumParentID != "album-parent" || parsedChild.AlbumMessageIndex != 2 {
+		t.Fatalf("expected album parent/index metadata, got %+v", parsedChild)
 	}
 }
 

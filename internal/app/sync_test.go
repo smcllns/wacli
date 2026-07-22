@@ -2,10 +2,13 @@ package app
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/steipete/wacli/internal/wa"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
 	"go.mau.fi/whatsmeow/proto/waCommon"
 	"go.mau.fi/whatsmeow/proto/waHistorySync"
@@ -83,6 +86,42 @@ func TestSyncStoresLiveAndHistoryMessages(t *testing.T) {
 	}
 	if n, err := a.db.CountMessages(); err != nil || n != 2 {
 		t.Fatalf("expected 2 messages in DB, got %d (err=%v)", n, err)
+	}
+}
+
+func TestStoreParsedMessagePreservesAlbumMetadata(t *testing.T) {
+	a := newTestApp(t)
+	a.wa = newFakeWA()
+	chat := types.JID{User: "123", Server: types.DefaultUserServer}
+
+	_, err := a.storeParsedMessage(context.Background(), wa.ParsedMessage{
+		Chat:               chat,
+		ID:                 "album-child",
+		Timestamp:          time.Now().UTC(),
+		AlbumExpectedCount: 3,
+		AlbumParentID:      "album-parent",
+		AlbumMessageIndex:  2,
+	})
+	if err != nil {
+		t.Fatalf("storeParsedMessage: %v", err)
+	}
+
+	raw, err := sql.Open("sqlite3", filepath.Join(a.opts.StoreDir, "wacli.db"))
+	if err != nil {
+		t.Fatalf("open store DB: %v", err)
+	}
+	defer raw.Close()
+	var expectedCount int64
+	var parentID string
+	var messageIndex int64
+	if err := raw.QueryRow(`
+		SELECT album_expected_count, album_parent_msg_id, album_message_index
+		FROM messages WHERE chat_jid = ? AND msg_id = ?
+	`, chat.String(), "album-child").Scan(&expectedCount, &parentID, &messageIndex); err != nil {
+		t.Fatalf("query album metadata: %v", err)
+	}
+	if expectedCount != 3 || parentID != "album-parent" || messageIndex != 2 {
+		t.Fatalf("unexpected album metadata: count=%d parent=%q index=%d", expectedCount, parentID, messageIndex)
 	}
 }
 

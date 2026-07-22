@@ -56,8 +56,8 @@ func TestRunDaemonRespondsToHealth(t *testing.T) {
 	if !ok {
 		t.Fatalf("capabilities = %T, want JSON array", data["capabilities"])
 	}
-	if !containsCapability(caps, "mark_read") || !containsCapability(caps, "quoted_send_text") || !containsCapability(caps, "send_edit") {
-		t.Fatalf("capabilities = %v, want mark_read, quoted_send_text, and send_edit", caps)
+	if !containsCapability(caps, "mark_read") || !containsCapability(caps, "quoted_send_text") || !containsCapability(caps, "send_edit") || !containsCapability(caps, "album_metadata") {
+		t.Fatalf("capabilities = %v, want mark_read, quoted_send_text, send_edit, and album_metadata", caps)
 	}
 
 	cancel()
@@ -654,6 +654,63 @@ func TestRunDaemonSubscribeEmitsStoredLiveMessage(t *testing.T) {
 	}
 	if event.Type != "message" || event.ChatJID != chat.String() || event.MsgID != "m-live-daemon" || event.Text != "hello daemon" || event.RowID <= 0 {
 		t.Fatalf("event = %+v", event)
+	}
+}
+
+func TestRunDaemonSubscribeEmitsAlbumMetadata(t *testing.T) {
+	a := newTestAppWithFakeWA(t)
+	fake := a.wa.(*fakeWA)
+	socketPath := shortSocketPath(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = a.RunDaemon(ctx, DaemonOptions{SocketPath: socketPath, QueueSize: 4}) }()
+	waitForUnixSocket(t, socketPath)
+
+	conn, err := net.Dial("unix", socketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	decoder := json.NewDecoder(conn)
+	if _, err := conn.Write([]byte(`{"type":"subscribe"}` + "\n")); err != nil {
+		t.Fatal(err)
+	}
+	var ack DaemonResponse
+	if err := decoder.Decode(&ack); err != nil || !ack.Success {
+		t.Fatalf("subscribe ack: %+v err=%v", ack, err)
+	}
+
+	chat := types.JID{User: "123", Server: types.DefaultUserServer}
+	fake.emit(&events.Message{
+		Info:    types.MessageInfo{MessageSource: types.MessageSource{Chat: chat, Sender: chat}, ID: "album-parent", Timestamp: time.Now().UTC()},
+		Message: &waProto.Message{AlbumMessage: &waE2E.AlbumMessage{ExpectedImageCount: proto.Uint32(2)}},
+	})
+	var parent map[string]any
+	if err := decoder.Decode(&parent); err != nil {
+		t.Fatal(err)
+	}
+	if parent["albumExpectedCount"] != float64(2) {
+		t.Fatalf("parent event missing expected count: %+v", parent)
+	}
+
+	associationType := waE2E.MessageAssociation_MEDIA_ALBUM
+	fake.emit(&events.Message{
+		Info: types.MessageInfo{MessageSource: types.MessageSource{Chat: chat, Sender: chat}, ID: "album-child", Timestamp: time.Now().UTC()},
+		Message: &waProto.Message{
+			ImageMessage: &waProto.ImageMessage{},
+			MessageContextInfo: &waE2E.MessageContextInfo{MessageAssociation: &waE2E.MessageAssociation{
+				AssociationType:  &associationType,
+				ParentMessageKey: &waProto.MessageKey{ID: proto.String("album-parent")},
+				MessageIndex:     proto.Int32(1),
+			}},
+		},
+	})
+	var child map[string]any
+	if err := decoder.Decode(&child); err != nil {
+		t.Fatal(err)
+	}
+	if child["albumParentMsgId"] != "album-parent" || child["albumMessageIndex"] != float64(1) {
+		t.Fatalf("child event missing album association: %+v", child)
 	}
 }
 

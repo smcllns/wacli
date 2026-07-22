@@ -37,17 +37,20 @@ type DaemonResponse struct {
 }
 
 type DaemonEvent struct {
-	Type         string `json:"type"`
-	RowID        int64  `json:"rowid"`
-	ChatJID      string `json:"chatJid"`
-	MsgID        string `json:"msgId"`
-	SenderJID    string `json:"senderJid,omitempty"`
-	Timestamp    string `json:"timestamp"`
-	FromMe       bool   `json:"fromMe"`
-	Text         string `json:"text,omitempty"`
-	DisplayText  string `json:"displayText,omitempty"`
-	MediaType    string `json:"mediaType,omitempty"`
-	EditTargetID string `json:"editTargetMsgId,omitempty"`
+	Type               string `json:"type"`
+	RowID              int64  `json:"rowid"`
+	ChatJID            string `json:"chatJid"`
+	MsgID              string `json:"msgId"`
+	SenderJID          string `json:"senderJid,omitempty"`
+	Timestamp          string `json:"timestamp"`
+	FromMe             bool   `json:"fromMe"`
+	Text               string `json:"text,omitempty"`
+	DisplayText        string `json:"displayText,omitempty"`
+	MediaType          string `json:"mediaType,omitempty"`
+	EditTargetID       string `json:"editTargetMsgId,omitempty"`
+	AlbumExpectedCount uint32 `json:"albumExpectedCount,omitempty"`
+	AlbumParentMsgID   string `json:"albumParentMsgId,omitempty"`
+	AlbumMessageIndex  *int32 `json:"albumMessageIndex,omitempty"`
 }
 
 type DaemonCommand struct {
@@ -152,17 +155,20 @@ func (a *App) RunDaemon(ctx context.Context, opts DaemonOptions) error {
 				return
 			}
 			subscribers.broadcast(DaemonEvent{
-				Type:         "message",
-				RowID:        rowid,
-				ChatJID:      pm.Chat.String(),
-				MsgID:        pm.ID,
-				SenderJID:    pm.SenderJID,
-				Timestamp:    pm.Timestamp.UTC().Format(time.RFC3339Nano),
-				FromMe:       pm.FromMe,
-				Text:         pm.Text,
-				DisplayText:  displayText,
-				MediaType:    daemonMediaType(pm.Media),
-				EditTargetID: pm.EditTargetID,
+				Type:               "message",
+				RowID:              rowid,
+				ChatJID:            pm.Chat.String(),
+				MsgID:              pm.ID,
+				SenderJID:          pm.SenderJID,
+				Timestamp:          pm.Timestamp.UTC().Format(time.RFC3339Nano),
+				FromMe:             pm.FromMe,
+				Text:               pm.Text,
+				DisplayText:        displayText,
+				MediaType:          daemonMediaType(pm.Media),
+				EditTargetID:       pm.EditTargetID,
+				AlbumExpectedCount: pm.AlbumExpectedCount,
+				AlbumParentMsgID:   pm.AlbumParentID,
+				AlbumMessageIndex:  albumMessageIndexPointer(pm),
 			})
 		case events.PermanentDisconnect:
 			sendDaemonError(errCh, fmt.Errorf("permanent daemon disconnect: %s", v.PermanentDisconnectDescription()))
@@ -303,7 +309,7 @@ func (a *App) handleDaemonConn(ctx context.Context, conn net.Conn, queue *daemon
 				"queueDepth":      len(queue.slots),
 				"queueMaxDepth":   cap(queue.slots),
 				"subscriberCount": subscribers.count(),
-				"capabilities":    []string{"send_text", "send_file", "download_media", "send_react", "send_edit", "mark_read", "quoted_send_text"},
+				"capabilities":    []string{"send_text", "send_file", "download_media", "send_react", "send_edit", "mark_read", "quoted_send_text", "album_metadata"},
 				"ts":              time.Now().UTC().Format(time.RFC3339Nano),
 			}})
 			continue
@@ -527,6 +533,14 @@ func quotedTextMessage(text, replyToMsgID, replyToSenderJID, replyToText string)
 			ContextInfo: ctx,
 		},
 	}
+}
+
+func albumMessageIndexPointer(message wa.ParsedMessage) *int32 {
+	if strings.TrimSpace(message.AlbumParentID) == "" {
+		return nil
+	}
+	index := message.AlbumMessageIndex
+	return &index
 }
 
 func daemonMediaType(media *wa.Media) string {
