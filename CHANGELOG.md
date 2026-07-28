@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Daemon: preserve WhatsApp album parent/child metadata for atomic downstream batching and restart catch-up.
+
 ## 0.3.0 - 2026-02-22
 
 ### Added

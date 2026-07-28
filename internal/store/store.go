@@ -129,6 +129,9 @@ func (d *DB) ensureSchema() error {
 			file_sha256 BLOB,
 			file_enc_sha256 BLOB,
 			file_length INTEGER,
+			album_expected_count INTEGER,
+			album_parent_msg_id TEXT,
+			album_message_index INTEGER,
 			local_path TEXT,
 			downloaded_at INTEGER,
 			UNIQUE(chat_jid, msg_id),
@@ -153,15 +156,26 @@ func (d *DB) ensureSchema() error {
 }
 
 func (d *DB) ensureMessageColumns() error {
-	ok, err := d.tableHasColumn("messages", "display_text")
-	if err != nil {
-		return err
+	columns := []struct {
+		name     string
+		typeName string
+	}{
+		{name: "display_text", typeName: "TEXT"},
+		{name: "album_expected_count", typeName: "INTEGER"},
+		{name: "album_parent_msg_id", typeName: "TEXT"},
+		{name: "album_message_index", typeName: "INTEGER"},
 	}
-	if ok {
-		return nil
-	}
-	if _, err := d.sql.Exec(`ALTER TABLE messages ADD COLUMN display_text TEXT`); err != nil {
-		return fmt.Errorf("add display_text column: %w", err)
+	for _, column := range columns {
+		exists, err := d.tableHasColumn("messages", column.name)
+		if err != nil {
+			return err
+		}
+		if exists {
+			continue
+		}
+		if _, err := d.sql.Exec(`ALTER TABLE messages ADD COLUMN ` + column.name + ` ` + column.typeName); err != nil {
+			return fmt.Errorf("add %s column: %w", column.name, err)
+		}
 	}
 	return nil
 }
@@ -392,24 +406,27 @@ func (d *DB) UpsertChat(jid, kind, name string, lastTS time.Time) error {
 }
 
 type UpsertMessageParams struct {
-	ChatJID       string
-	ChatName      string
-	MsgID         string
-	SenderJID     string
-	SenderName    string
-	Timestamp     time.Time
-	FromMe        bool
-	Text          string
-	DisplayText   string
-	MediaType     string
-	MediaCaption  string
-	Filename      string
-	MimeType      string
-	DirectPath    string
-	MediaKey      []byte
-	FileSHA256    []byte
-	FileEncSHA256 []byte
-	FileLength    uint64
+	ChatJID            string
+	ChatName           string
+	MsgID              string
+	SenderJID          string
+	SenderName         string
+	Timestamp          time.Time
+	FromMe             bool
+	Text               string
+	DisplayText        string
+	MediaType          string
+	MediaCaption       string
+	Filename           string
+	MimeType           string
+	DirectPath         string
+	MediaKey           []byte
+	FileSHA256         []byte
+	FileEncSHA256      []byte
+	FileLength         uint64
+	AlbumExpectedCount int64
+	AlbumParentID      string
+	AlbumMessageIndex  int64
 }
 
 func (d *DB) UpsertMessage(p UpsertMessageParams) error {
@@ -417,8 +434,9 @@ func (d *DB) UpsertMessage(p UpsertMessageParams) error {
 		INSERT INTO messages(
 			chat_jid, chat_name, msg_id, sender_jid, sender_name, ts, from_me, text, display_text,
 			media_type, media_caption, filename, mime_type, direct_path,
-			media_key, file_sha256, file_enc_sha256, file_length
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			media_key, file_sha256, file_enc_sha256, file_length,
+			album_expected_count, album_parent_msg_id, album_message_index
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(chat_jid, msg_id) DO UPDATE SET
 			chat_name=COALESCE(NULLIF(excluded.chat_name,''), messages.chat_name),
 			sender_jid=excluded.sender_jid,
@@ -435,10 +453,13 @@ func (d *DB) UpsertMessage(p UpsertMessageParams) error {
 			media_key=CASE WHEN excluded.media_key IS NOT NULL AND length(excluded.media_key)>0 THEN excluded.media_key ELSE messages.media_key END,
 			file_sha256=CASE WHEN excluded.file_sha256 IS NOT NULL AND length(excluded.file_sha256)>0 THEN excluded.file_sha256 ELSE messages.file_sha256 END,
 			file_enc_sha256=CASE WHEN excluded.file_enc_sha256 IS NOT NULL AND length(excluded.file_enc_sha256)>0 THEN excluded.file_enc_sha256 ELSE messages.file_enc_sha256 END,
-			file_length=CASE WHEN excluded.file_length>0 THEN excluded.file_length ELSE messages.file_length END
+			file_length=CASE WHEN excluded.file_length>0 THEN excluded.file_length ELSE messages.file_length END,
+			album_expected_count=CASE WHEN excluded.album_expected_count>0 THEN excluded.album_expected_count ELSE messages.album_expected_count END,
+			album_parent_msg_id=COALESCE(NULLIF(excluded.album_parent_msg_id,''), messages.album_parent_msg_id),
+			album_message_index=CASE WHEN excluded.album_parent_msg_id IS NOT NULL THEN excluded.album_message_index ELSE messages.album_message_index END
 	`, p.ChatJID, nullIfEmpty(p.ChatName), p.MsgID, nullIfEmpty(p.SenderJID), nullIfEmpty(p.SenderName), unix(p.Timestamp), boolToInt(p.FromMe), nullIfEmpty(p.Text), nullIfEmpty(p.DisplayText),
 		nullIfEmpty(p.MediaType), nullIfEmpty(p.MediaCaption), nullIfEmpty(p.Filename), nullIfEmpty(p.MimeType), nullIfEmpty(p.DirectPath),
-		p.MediaKey, p.FileSHA256, p.FileEncSHA256, int64(p.FileLength),
+		p.MediaKey, p.FileSHA256, p.FileEncSHA256, int64(p.FileLength), nullInt64(p.AlbumExpectedCount), nullIfEmpty(p.AlbumParentID), albumMessageIndexValue(p.AlbumParentID, p.AlbumMessageIndex),
 	)
 	return err
 }
@@ -462,6 +483,20 @@ func nullIfEmpty(s string) interface{} {
 		return nil
 	}
 	return s
+}
+
+func nullInt64(value int64) interface{} {
+	if value == 0 {
+		return nil
+	}
+	return value
+}
+
+func albumMessageIndexValue(parentID string, index int64) interface{} {
+	if strings.TrimSpace(parentID) == "" {
+		return nil
+	}
+	return index
 }
 
 type ListMessagesParams struct {

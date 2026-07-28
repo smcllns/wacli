@@ -5,6 +5,7 @@ import (
 	"time"
 
 	waProto "go.mau.fi/whatsmeow/binary/proto"
+	waE2E "go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	"google.golang.org/protobuf/proto"
@@ -42,20 +43,23 @@ func BuildEditTextMessage(chat types.JID, targetID types.MessageID, text string)
 }
 
 type ParsedMessage struct {
-	Chat           types.JID
-	ID             string
-	SenderJID      string
-	Timestamp      time.Time
-	FromMe         bool
-	Text           string
-	Media          *Media
-	PushName       string
-	ReplyToID      string
-	ReplyToDisplay string
-	ReactionToID   string
-	ReactionEmoji  string
-	EditTargetID   string
-	Placeholder    bool
+	Chat               types.JID
+	ID                 string
+	SenderJID          string
+	Timestamp          time.Time
+	FromMe             bool
+	Text               string
+	Media              *Media
+	PushName           string
+	ReplyToID          string
+	ReplyToDisplay     string
+	ReactionToID       string
+	ReactionEmoji      string
+	EditTargetID       string
+	Placeholder        bool
+	AlbumExpectedCount uint32
+	AlbumParentID      string
+	AlbumMessageIndex  int32
 }
 
 func ParseLiveMessage(evt *events.Message) ParsedMessage {
@@ -140,6 +144,14 @@ func extractWAProto(m *waProto.Message, pm *ParsedMessage) {
 
 	if m.GetPlaceholderMessage() != nil {
 		pm.Placeholder = true
+	}
+
+	if album := m.GetAlbumMessage(); album != nil {
+		pm.AlbumExpectedCount = album.GetExpectedImageCount() + album.GetExpectedVideoCount()
+	}
+	if association := m.GetMessageContextInfo().GetMessageAssociation(); association != nil && association.GetAssociationType() == waE2E.MessageAssociation_MEDIA_ALBUM {
+		pm.AlbumParentID = strings.TrimSpace(association.GetParentMessageKey().GetID())
+		pm.AlbumMessageIndex = association.GetMessageIndex()
 	}
 
 	if reaction := m.GetReactionMessage(); reaction != nil {

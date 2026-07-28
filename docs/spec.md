@@ -156,6 +156,7 @@ Notes:
 
 - `sync` errors if not authenticated (never prints QR).
 - `daemon` errors if not authenticated, owns one WhatsApp connection/store lock, emits subscribed live message events after storing them, and serializes write commands through a bounded queue.
+- Album parent events expose `albumExpectedCount`; associated media events expose `albumParentMsgId` and zero-based `albumMessageIndex`. These fields are also persisted for restart catch-up.
 - `--download-media` runs a bounded/concurrent media downloader for messages that contain downloadable media metadata.
 
 ### History backfill (best-effort)
