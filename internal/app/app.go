@@ -46,6 +46,7 @@ type WAClient interface {
 
 	SendPresence(ctx context.Context, presence types.Presence) error
 	MarkRead(ctx context.Context, ids []types.MessageID, timestamp time.Time, chat, sender types.JID) error
+	MarkReadKeepingAvailable(ctx context.Context, ids []types.MessageID, timestamp time.Time, chat, sender types.JID) error
 	SendReaction(ctx context.Context, chat, sender types.JID, targetID types.MessageID, reaction string) (whatsmeow.SendResponse, error)
 	DecryptReaction(ctx context.Context, reaction *events.Message) (*waProto.ReactionMessage, error)
 	DecryptSecretEncryptedMessage(ctx context.Context, msg *events.Message) (*waProto.Message, error)

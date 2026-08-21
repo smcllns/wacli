@@ -37,10 +37,11 @@ type fakeWA struct {
 	lastProtoTo      types.JID
 	lastProtoMessage *waProto.Message
 
-	lastReadIDs       []types.MessageID
-	lastReadTimestamp time.Time
-	lastReadChat      types.JID
-	lastReadSender    types.JID
+	lastReadIDs           []types.MessageID
+	lastReadTimestamp     time.Time
+	lastReadChat          types.JID
+	lastReadSender        types.JID
+	lastReadKeptAvailable bool
 
 	requestedUnavailableChat   types.JID
 	requestedUnavailableSender types.JID
@@ -293,6 +294,16 @@ func (f *fakeWA) MarkRead(ctx context.Context, ids []types.MessageID, timestamp 
 	f.lastReadTimestamp = timestamp
 	f.lastReadChat = chat
 	f.lastReadSender = sender
+	return nil
+}
+
+func (f *fakeWA) MarkReadKeepingAvailable(ctx context.Context, ids []types.MessageID, timestamp time.Time, chat, sender types.JID) error {
+	if err := f.MarkRead(ctx, ids, timestamp, chat, sender); err != nil {
+		return err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.lastReadKeptAvailable = true
 	return nil
 }
 

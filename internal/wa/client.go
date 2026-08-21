@@ -220,6 +220,14 @@ func (c *Client) SendPresence(ctx context.Context, presence types.Presence) erro
 }
 
 func (c *Client) MarkRead(ctx context.Context, ids []types.MessageID, timestamp time.Time, chat, sender types.JID) error {
+	return c.markRead(ctx, ids, timestamp, chat, sender, false)
+}
+
+func (c *Client) MarkReadKeepingAvailable(ctx context.Context, ids []types.MessageID, timestamp time.Time, chat, sender types.JID) error {
+	return c.markRead(ctx, ids, timestamp, chat, sender, true)
+}
+
+func (c *Client) markRead(ctx context.Context, ids []types.MessageID, timestamp time.Time, chat, sender types.JID, keepAvailable bool) error {
 	c.mu.Lock()
 	cli := c.client
 	c.mu.Unlock()
@@ -230,8 +238,9 @@ func (c *Client) MarkRead(ctx context.Context, ids []types.MessageID, timestamp 
 	_ = cli.SendPresence(ctx, types.PresenceAvailable)
 	// Request a read receipt; whatsmeow honors account privacy and may downgrade to read-self.
 	err := cli.MarkRead(ctx, ids, timestamp, chat, sender, types.ReceiptTypeRead)
-	// Go back to unavailable
-	_ = cli.SendPresence(ctx, types.PresenceUnavailable)
+	if !keepAvailable {
+		_ = cli.SendPresence(ctx, types.PresenceUnavailable)
+	}
 	return err
 }
 

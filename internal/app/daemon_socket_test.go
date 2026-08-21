@@ -575,6 +575,9 @@ func TestRunDaemonHandlesMarkReadInProcess(t *testing.T) {
 	if got := fake.lastReadTimestamp.Format(time.RFC3339); got != "2026-06-26T15:00:00Z" {
 		t.Fatalf("read timestamp = %s", got)
 	}
+	if !fake.lastReadKeptAvailable {
+		t.Fatal("daemon mark_read did not preserve linked-device availability")
+	}
 }
 
 func TestRunDaemonMarkReadDerivesStoredSenderAndTimestamp(t *testing.T) {

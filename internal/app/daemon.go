@@ -459,7 +459,7 @@ func (a *App) handleDaemonWriteCommand(ctx context.Context, cmd DaemonCommand) (
 		if daemonCommandChatIsGroup(chat.String()) && sender.IsEmpty() {
 			return nil, errors.New("mark_read requires senderJid for group chats when message sender is not in DB")
 		}
-		if err := a.wa.MarkRead(ctx, ids, timestamp, chat, sender); err != nil {
+		if err := a.wa.MarkReadKeepingAvailable(ctx, ids, timestamp, chat, sender); err != nil {
 			return nil, err
 		}
 		return map[string]any{"read": true, "count": len(ids)}, nil
