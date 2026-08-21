@@ -228,7 +228,16 @@ func (a *App) RunDaemon(ctx context.Context, opts DaemonOptions) error {
 func (a *App) sendDaemonAvailablePresence(ctx context.Context) error {
 	presenceCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	return a.wa.SendPresence(presenceCtx, types.PresenceAvailable)
+	result := make(chan error, 1)
+	go func() {
+		result <- a.wa.SendPresence(presenceCtx, types.PresenceAvailable)
+	}()
+	select {
+	case err := <-result:
+		return err
+	case <-presenceCtx.Done():
+		return presenceCtx.Err()
+	}
 }
 
 type daemonSubscribers struct {

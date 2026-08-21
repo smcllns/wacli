@@ -185,6 +185,31 @@ func TestRunDaemonSendsAvailablePresenceAfterInitialConnect(t *testing.T) {
 	}
 }
 
+func TestSendDaemonAvailablePresenceReturnsWhenDependencyWriteStalls(t *testing.T) {
+	a := newTestAppWithFakeWA(t)
+	fake := a.wa.(*fakeWA)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	defer close(release)
+	fake.presenceStarted = started
+	fake.presenceRelease = release
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- a.sendDaemonAvailablePresence(ctx) }()
+	<-started
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("error = %v, want context deadline exceeded", err)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("presence helper did not return after its context deadline")
+	}
+}
+
 func TestRunDaemonReconnectsAfterDisconnectedEvent(t *testing.T) {
 	a := newTestAppWithFakeWA(t)
 	fake := a.wa.(*fakeWA)

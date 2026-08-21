@@ -52,6 +52,8 @@ type fakeWA struct {
 
 	presenceCalls     []types.Presence
 	presenceDeadlines []bool
+	presenceStarted   chan struct{}
+	presenceRelease   <-chan struct{}
 	reconnects        int
 }
 
@@ -126,6 +128,18 @@ func (f *fakeWA) ReconnectWithBackoff(ctx context.Context, minDelay, maxDelay ti
 }
 
 func (f *fakeWA) SendPresence(ctx context.Context, presence types.Presence) error {
+	f.mu.Lock()
+	started := f.presenceStarted
+	release := f.presenceRelease
+	f.presenceStarted = nil
+	f.mu.Unlock()
+	if started != nil {
+		close(started)
+	}
+	if release != nil {
+		<-release
+	}
+
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	_, hasDeadline := ctx.Deadline()
