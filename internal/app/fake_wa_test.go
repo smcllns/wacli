@@ -37,10 +37,11 @@ type fakeWA struct {
 	lastProtoTo      types.JID
 	lastProtoMessage *waProto.Message
 
-	lastReadIDs       []types.MessageID
-	lastReadTimestamp time.Time
-	lastReadChat      types.JID
-	lastReadSender    types.JID
+	lastReadIDs           []types.MessageID
+	lastReadTimestamp     time.Time
+	lastReadChat          types.JID
+	lastReadSender        types.JID
+	lastReadKeptAvailable bool
 
 	requestedUnavailableChat   types.JID
 	requestedUnavailableSender types.JID
@@ -50,7 +51,12 @@ type fakeWA struct {
 	decryptSecretEncryptedMessage *waProto.Message
 	decryptSecretEncryptedErr     error
 
-	reconnects int
+	presenceCalls     []types.Presence
+	presenceDeadlines []bool
+	presenceStarted   chan struct{}
+	presenceRelease   <-chan struct{}
+	presenceErr       error
+	reconnects        int
 }
 
 func newFakeWA() *fakeWA {
@@ -121,6 +127,27 @@ func (f *fakeWA) ReconnectWithBackoff(ctx context.Context, minDelay, maxDelay ti
 	f.reconnects++
 	f.mu.Unlock()
 	return f.Connect(ctx, wa.ConnectOptions{AllowQR: false})
+}
+
+func (f *fakeWA) SendPresence(ctx context.Context, presence types.Presence) error {
+	f.mu.Lock()
+	started := f.presenceStarted
+	release := f.presenceRelease
+	f.presenceStarted = nil
+	f.mu.Unlock()
+	if started != nil {
+		close(started)
+	}
+	if release != nil {
+		<-release
+	}
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	_, hasDeadline := ctx.Deadline()
+	f.presenceCalls = append(f.presenceCalls, presence)
+	f.presenceDeadlines = append(f.presenceDeadlines, hasDeadline)
+	return f.presenceErr
 }
 
 func (f *fakeWA) ResolveChatName(ctx context.Context, chat types.JID, pushName string) string {
@@ -267,6 +294,16 @@ func (f *fakeWA) MarkRead(ctx context.Context, ids []types.MessageID, timestamp 
 	f.lastReadTimestamp = timestamp
 	f.lastReadChat = chat
 	f.lastReadSender = sender
+	return nil
+}
+
+func (f *fakeWA) MarkReadKeepingAvailable(ctx context.Context, ids []types.MessageID, timestamp time.Time, chat, sender types.JID) error {
+	if err := f.MarkRead(ctx, ids, timestamp, chat, sender); err != nil {
+		return err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.lastReadKeptAvailable = true
 	return nil
 }
 

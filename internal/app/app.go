@@ -44,7 +44,9 @@ type WAClient interface {
 	Upload(ctx context.Context, data []byte, mediaType whatsmeow.MediaType) (whatsmeow.UploadResponse, error)
 	DownloadMediaToFile(ctx context.Context, directPath string, encFileHash, fileHash, mediaKey []byte, fileLength uint64, mediaType, mmsType string, targetPath string) (int64, error)
 
+	SendPresence(ctx context.Context, presence types.Presence) error
 	MarkRead(ctx context.Context, ids []types.MessageID, timestamp time.Time, chat, sender types.JID) error
+	MarkReadKeepingAvailable(ctx context.Context, ids []types.MessageID, timestamp time.Time, chat, sender types.JID) error
 	SendReaction(ctx context.Context, chat, sender types.JID, targetID types.MessageID, reaction string) (whatsmeow.SendResponse, error)
 	DecryptReaction(ctx context.Context, reaction *events.Message) (*waProto.ReactionMessage, error)
 	DecryptSecretEncryptedMessage(ctx context.Context, msg *events.Message) (*waProto.Message, error)

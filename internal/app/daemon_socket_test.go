@@ -166,6 +166,61 @@ func waitForUnixSocketOrError(t *testing.T, socketPath string, errCh <-chan erro
 	}
 	t.Fatalf("timed out waiting for socket %s", socketPath)
 }
+func TestRunDaemonSendsAvailablePresenceAfterInitialConnect(t *testing.T) {
+	a := newTestAppWithFakeWA(t)
+	fake := a.wa.(*fakeWA)
+	socketPath := shortSocketPath(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = a.RunDaemon(ctx, DaemonOptions{SocketPath: socketPath, QueueSize: 4}) }()
+	waitForUnixSocket(t, socketPath)
+
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if len(fake.presenceCalls) != 1 || fake.presenceCalls[0] != types.PresenceAvailable {
+		t.Fatalf("presence calls = %v, want [available]", fake.presenceCalls)
+	}
+	if len(fake.presenceDeadlines) != 1 || !fake.presenceDeadlines[0] {
+		t.Fatalf("presence deadlines = %v, want [true]", fake.presenceDeadlines)
+	}
+}
+
+func TestRunDaemonFailsBeforeOpeningSocketWhenInitialPresenceFails(t *testing.T) {
+	a := newTestAppWithFakeWA(t)
+	fake := a.wa.(*fakeWA)
+	fake.presenceErr = errors.New("presence unavailable")
+
+	err := a.RunDaemon(context.Background(), DaemonOptions{SocketPath: shortSocketPath(t), QueueSize: 4})
+	if err == nil || !strings.Contains(err.Error(), "send daemon available presence: presence unavailable") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestSendDaemonAvailablePresenceReturnsWhenDependencyWriteStalls(t *testing.T) {
+	a := newTestAppWithFakeWA(t)
+	fake := a.wa.(*fakeWA)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	defer close(release)
+	fake.presenceStarted = started
+	fake.presenceRelease = release
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- a.sendDaemonAvailablePresence(ctx) }()
+	<-started
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("error = %v, want context deadline exceeded", err)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("presence helper did not return after its context deadline")
+	}
+}
+
 func TestRunDaemonReconnectsAfterDisconnectedEvent(t *testing.T) {
 	a := newTestAppWithFakeWA(t)
 	fake := a.wa.(*fakeWA)
@@ -185,13 +240,43 @@ func TestRunDaemonReconnectsAfterDisconnectedEvent(t *testing.T) {
 		fake.mu.Lock()
 		reconnects := fake.reconnects
 		connected := fake.connected
+		presenceCalls := append([]types.Presence{}, fake.presenceCalls...)
 		fake.mu.Unlock()
 		if reconnects > 0 && connected {
+			if len(presenceCalls) != 2 || presenceCalls[1] != types.PresenceAvailable {
+				t.Fatalf("presence calls after reconnect = %v, want [available available]", presenceCalls)
+			}
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("daemon did not reconnect after disconnected event")
+}
+
+func TestRunDaemonStopsWhenPresenceFailsAfterReconnect(t *testing.T) {
+	a := newTestAppWithFakeWA(t)
+	fake := a.wa.(*fakeWA)
+	socketPath := shortSocketPath(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	errCh := make(chan error, 1)
+	go func() { errCh <- a.RunDaemon(ctx, DaemonOptions{SocketPath: socketPath, QueueSize: 4}) }()
+	waitForUnixSocketOrError(t, socketPath, errCh)
+
+	fake.mu.Lock()
+	fake.connected = false
+	fake.presenceErr = errors.New("presence unavailable")
+	fake.mu.Unlock()
+	fake.emit(&events.Disconnected{})
+
+	select {
+	case err := <-errCh:
+		if err == nil || !strings.Contains(err.Error(), "send daemon available presence after reconnect: presence unavailable") {
+			t.Fatalf("error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("RunDaemon did not stop after reconnect presence failure")
+	}
 }
 
 func TestRunDaemonCoalescesRepeatedDisconnectedEvents(t *testing.T) {
@@ -489,6 +574,9 @@ func TestRunDaemonHandlesMarkReadInProcess(t *testing.T) {
 	}
 	if got := fake.lastReadTimestamp.Format(time.RFC3339); got != "2026-06-26T15:00:00Z" {
 		t.Fatalf("read timestamp = %s", got)
+	}
+	if !fake.lastReadKeptAvailable {
+		t.Fatal("daemon mark_read did not preserve linked-device availability")
 	}
 }
 

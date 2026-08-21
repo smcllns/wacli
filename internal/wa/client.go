@@ -209,7 +209,25 @@ func (c *Client) Upload(ctx context.Context, data []byte, mediaType whatsmeow.Me
 	return cli.Upload(ctx, data, mediaType)
 }
 
+func (c *Client) SendPresence(ctx context.Context, presence types.Presence) error {
+	c.mu.Lock()
+	cli := c.client
+	c.mu.Unlock()
+	if cli == nil || !cli.IsConnected() {
+		return fmt.Errorf("not connected")
+	}
+	return cli.SendPresence(ctx, presence)
+}
+
 func (c *Client) MarkRead(ctx context.Context, ids []types.MessageID, timestamp time.Time, chat, sender types.JID) error {
+	return c.markRead(ctx, ids, timestamp, chat, sender, false)
+}
+
+func (c *Client) MarkReadKeepingAvailable(ctx context.Context, ids []types.MessageID, timestamp time.Time, chat, sender types.JID) error {
+	return c.markRead(ctx, ids, timestamp, chat, sender, true)
+}
+
+func (c *Client) markRead(ctx context.Context, ids []types.MessageID, timestamp time.Time, chat, sender types.JID, keepAvailable bool) error {
 	c.mu.Lock()
 	cli := c.client
 	c.mu.Unlock()
@@ -220,8 +238,9 @@ func (c *Client) MarkRead(ctx context.Context, ids []types.MessageID, timestamp 
 	_ = cli.SendPresence(ctx, types.PresenceAvailable)
 	// Request a read receipt; whatsmeow honors account privacy and may downgrade to read-self.
 	err := cli.MarkRead(ctx, ids, timestamp, chat, sender, types.ReceiptTypeRead)
-	// Go back to unavailable
-	_ = cli.SendPresence(ctx, types.PresenceUnavailable)
+	if !keepAvailable {
+		_ = cli.SendPresence(ctx, types.PresenceUnavailable)
+	}
 	return err
 }
 
