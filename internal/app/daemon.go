@@ -107,6 +107,9 @@ func (a *App) RunDaemon(ctx context.Context, opts DaemonOptions) error {
 	if err := a.Connect(ctx, false, nil); err != nil {
 		return err
 	}
+	if err := a.sendDaemonAvailablePresence(ctx); err != nil {
+		return fmt.Errorf("send daemon available presence: %w", err)
+	}
 
 	errCh := make(chan error, 1)
 	listener, err := net.Listen("unix", opts.SocketPath)
@@ -188,6 +191,10 @@ func (a *App) RunDaemon(ctx context.Context, opts DaemonOptions) error {
 				}()
 				if err := a.wa.ReconnectWithBackoff(ctx, 2*time.Second, 30*time.Second); err != nil {
 					sendDaemonError(errCh, fmt.Errorf("reconnect daemon after disconnect: %w", err))
+					return
+				}
+				if err := a.sendDaemonAvailablePresence(ctx); err != nil {
+					sendDaemonError(errCh, fmt.Errorf("send daemon available presence after reconnect: %w", err))
 				}
 			}()
 		}
@@ -216,6 +223,12 @@ func (a *App) RunDaemon(ctx context.Context, opts DaemonOptions) error {
 	case err := <-errCh:
 		return err
 	}
+}
+
+func (a *App) sendDaemonAvailablePresence(ctx context.Context) error {
+	presenceCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	return a.wa.SendPresence(presenceCtx, types.PresenceAvailable)
 }
 
 type daemonSubscribers struct {

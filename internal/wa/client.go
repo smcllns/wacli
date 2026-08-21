@@ -209,6 +209,16 @@ func (c *Client) Upload(ctx context.Context, data []byte, mediaType whatsmeow.Me
 	return cli.Upload(ctx, data, mediaType)
 }
 
+func (c *Client) SendPresence(ctx context.Context, presence types.Presence) error {
+	c.mu.Lock()
+	cli := c.client
+	c.mu.Unlock()
+	if cli == nil || !cli.IsConnected() {
+		return fmt.Errorf("not connected")
+	}
+	return cli.SendPresence(ctx, presence)
+}
+
 func (c *Client) MarkRead(ctx context.Context, ids []types.MessageID, timestamp time.Time, chat, sender types.JID) error {
 	c.mu.Lock()
 	cli := c.client

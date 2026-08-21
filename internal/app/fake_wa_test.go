@@ -50,7 +50,9 @@ type fakeWA struct {
 	decryptSecretEncryptedMessage *waProto.Message
 	decryptSecretEncryptedErr     error
 
-	reconnects int
+	presenceCalls     []types.Presence
+	presenceDeadlines []bool
+	reconnects        int
 }
 
 func newFakeWA() *fakeWA {
@@ -121,6 +123,15 @@ func (f *fakeWA) ReconnectWithBackoff(ctx context.Context, minDelay, maxDelay ti
 	f.reconnects++
 	f.mu.Unlock()
 	return f.Connect(ctx, wa.ConnectOptions{AllowQR: false})
+}
+
+func (f *fakeWA) SendPresence(ctx context.Context, presence types.Presence) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	_, hasDeadline := ctx.Deadline()
+	f.presenceCalls = append(f.presenceCalls, presence)
+	f.presenceDeadlines = append(f.presenceDeadlines, hasDeadline)
+	return nil
 }
 
 func (f *fakeWA) ResolveChatName(ctx context.Context, chat types.JID, pushName string) string {

@@ -166,6 +166,25 @@ func waitForUnixSocketOrError(t *testing.T, socketPath string, errCh <-chan erro
 	}
 	t.Fatalf("timed out waiting for socket %s", socketPath)
 }
+func TestRunDaemonSendsAvailablePresenceAfterInitialConnect(t *testing.T) {
+	a := newTestAppWithFakeWA(t)
+	fake := a.wa.(*fakeWA)
+	socketPath := shortSocketPath(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = a.RunDaemon(ctx, DaemonOptions{SocketPath: socketPath, QueueSize: 4}) }()
+	waitForUnixSocket(t, socketPath)
+
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if len(fake.presenceCalls) != 1 || fake.presenceCalls[0] != types.PresenceAvailable {
+		t.Fatalf("presence calls = %v, want [available]", fake.presenceCalls)
+	}
+	if len(fake.presenceDeadlines) != 1 || !fake.presenceDeadlines[0] {
+		t.Fatalf("presence deadlines = %v, want [true]", fake.presenceDeadlines)
+	}
+}
+
 func TestRunDaemonReconnectsAfterDisconnectedEvent(t *testing.T) {
 	a := newTestAppWithFakeWA(t)
 	fake := a.wa.(*fakeWA)
@@ -185,8 +204,12 @@ func TestRunDaemonReconnectsAfterDisconnectedEvent(t *testing.T) {
 		fake.mu.Lock()
 		reconnects := fake.reconnects
 		connected := fake.connected
+		presenceCalls := append([]types.Presence{}, fake.presenceCalls...)
 		fake.mu.Unlock()
 		if reconnects > 0 && connected {
+			if len(presenceCalls) != 2 || presenceCalls[1] != types.PresenceAvailable {
+				t.Fatalf("presence calls after reconnect = %v, want [available available]", presenceCalls)
+			}
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
