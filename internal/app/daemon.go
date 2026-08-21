@@ -107,6 +107,8 @@ func (a *App) RunDaemon(ctx context.Context, opts DaemonOptions) error {
 	if err := a.Connect(ctx, false, nil); err != nil {
 		return err
 	}
+	// Availability is required for inbound linked-device delivery. Fail instead of opening a daemon
+	// socket that reports healthy while owner messages never arrive; the supervisor can restart us.
 	if err := a.sendDaemonAvailablePresence(ctx); err != nil {
 		return fmt.Errorf("send daemon available presence: %w", err)
 	}

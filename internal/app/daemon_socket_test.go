@@ -185,6 +185,17 @@ func TestRunDaemonSendsAvailablePresenceAfterInitialConnect(t *testing.T) {
 	}
 }
 
+func TestRunDaemonFailsBeforeOpeningSocketWhenInitialPresenceFails(t *testing.T) {
+	a := newTestAppWithFakeWA(t)
+	fake := a.wa.(*fakeWA)
+	fake.presenceErr = errors.New("presence unavailable")
+
+	err := a.RunDaemon(context.Background(), DaemonOptions{SocketPath: shortSocketPath(t), QueueSize: 4})
+	if err == nil || !strings.Contains(err.Error(), "send daemon available presence: presence unavailable") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestSendDaemonAvailablePresenceReturnsWhenDependencyWriteStalls(t *testing.T) {
 	a := newTestAppWithFakeWA(t)
 	fake := a.wa.(*fakeWA)
@@ -240,6 +251,32 @@ func TestRunDaemonReconnectsAfterDisconnectedEvent(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("daemon did not reconnect after disconnected event")
+}
+
+func TestRunDaemonStopsWhenPresenceFailsAfterReconnect(t *testing.T) {
+	a := newTestAppWithFakeWA(t)
+	fake := a.wa.(*fakeWA)
+	socketPath := shortSocketPath(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	errCh := make(chan error, 1)
+	go func() { errCh <- a.RunDaemon(ctx, DaemonOptions{SocketPath: socketPath, QueueSize: 4}) }()
+	waitForUnixSocketOrError(t, socketPath, errCh)
+
+	fake.mu.Lock()
+	fake.connected = false
+	fake.presenceErr = errors.New("presence unavailable")
+	fake.mu.Unlock()
+	fake.emit(&events.Disconnected{})
+
+	select {
+	case err := <-errCh:
+		if err == nil || !strings.Contains(err.Error(), "send daemon available presence after reconnect: presence unavailable") {
+			t.Fatalf("error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("RunDaemon did not stop after reconnect presence failure")
+	}
 }
 
 func TestRunDaemonCoalescesRepeatedDisconnectedEvents(t *testing.T) {

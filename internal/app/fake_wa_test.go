@@ -54,6 +54,7 @@ type fakeWA struct {
 	presenceDeadlines []bool
 	presenceStarted   chan struct{}
 	presenceRelease   <-chan struct{}
+	presenceErr       error
 	reconnects        int
 }
 
@@ -145,7 +146,7 @@ func (f *fakeWA) SendPresence(ctx context.Context, presence types.Presence) erro
 	_, hasDeadline := ctx.Deadline()
 	f.presenceCalls = append(f.presenceCalls, presence)
 	f.presenceDeadlines = append(f.presenceDeadlines, hasDeadline)
-	return nil
+	return f.presenceErr
 }
 
 func (f *fakeWA) ResolveChatName(ctx context.Context, chat types.JID, pushName string) string {
